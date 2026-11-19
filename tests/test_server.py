@@ -126,7 +126,8 @@ class Server(unittest.TestCase):
         with opener.open(self.base + "/sofa-box.tar.gz", timeout=30) as r:          # the whole box in one file
             names = tarfile.open(fileobj=io.BytesIO(r.read()), mode="r:gz").getnames()
         for name in ("sofa-box/sofa-box-agent.py", "sofa-box/boxos.py", "sofa-box/home/index.html", "sofa-box/store.json",
-                     "sofa-box/games/games.json", "sofa-box/fonts/instrument-sans-latin-wght-normal.woff2"):
+                     "sofa-box/games/games.json", "sofa-box/games/shelf.js", "sofa-box/home/art/games/icon/wyrd.jpg",
+                     "sofa-box/fonts/instrument-sans-latin-wght-normal.woff2"):
             self.assertIn(name, names)
         self.assertNotIn("sofa-box/README.md", names)
         with self.assertRaises(urllib.error.HTTPError):
@@ -394,6 +395,13 @@ class Sharing(unittest.TestCase):
         st, headers, body = self.raw("/games/neon-dodge/", cookie=admin_cookie)
         self.assertEqual((st, headers["Content-Type"].split(";")[0]), (200, "text/html"))
         self.assertEqual(self.raw("/games/pad.js", cookie=admin_cookie)[0], 200)
+        self.assertEqual(self.raw("/games/shelf.js", cookie=admin_cookie)[0], 200)      # the list's rows and facts
+        for art in ("/games/art/wyrd.jpg", "/games/art/small/wyrd.jpg", "/games/art/icon/wyrd.jpg"):   # the games' pictures (the box's Home has them)
+            st, headers, body = self.raw(art, cookie=admin_cookie)
+            self.assertEqual((st, headers["Content-Type"], body[:2]), (200, "image/jpeg", b"\xff\xd8"), art)
+        for bad in ("/games/art/", "/games/art/../../index.html", "/games/art/%2e%2e/%2e%2e/home.js", "/games/art/small/", "/games/art/nothing.jpg", "/games/art/../home.css"):
+            self.assertEqual(self.raw(bad, cookie=admin_cookie)[0], 404, bad)
+        self.assertEqual(self.raw("/games/art/wyrd.jpg")[0], 401)                        # signed in, like the games
         for bad in ("/games/../sofa-box-agent.py", "/games/%2e%2e/sofa-box-agent.py", "/games/probe/", "/games/ENGINE.md"):
             self.assertEqual(self.raw(bad, cookie=admin_cookie)[0], 404, bad)
         self.assertEqual(self.raw("/games/neon-dodge/", "203.0.113.9")[0], 403)        # nobody from the internet

@@ -971,6 +971,11 @@ once outside the game, kept the boards that have a way to clear them, and the ga
   under one light, on one sheet (`--things fir,oak`, `--details`, `--seed`, `--row` for five seeds side by side,
   `--light`, `--root before=… --root after=…` for two checkouts side by side). For looking at the kit after a change
   to it. Like the look bench it is this computer's GPU: what the kit builds, never how fast a box draws it.
+- **`node tools/game-art.mjs`** takes each game's pictures for Home and the Games page from the game itself: the one
+  behind the page, a row's small copy and a square face (`home/art/games/`, `small/`, `icon/`). A game's moment is its
+  recipe in `tools/game-art.json` (playing itself, or stood somewhere with its writing put away; `--try 4,9,15` looks
+  for one). A new game needs a recipe, its pictures, and its facts in `games.json` (`kind`, `shelf`, `dim`, `with`,
+  `line`); and if it keeps a save, a few lines in `games/shelf.js` so its card can say where it was left.
 - **`node tools/look-bench.mjs --game wyrd`** pictures a game rather than timing it: the same places each time
   (`tools/look-places.json`, in sets: WYRD's `hearthrim` (the square, the well, the smith, a house front, the west
   houses, the Maw's edge), `maw` (two of its floors) and `regions` (each region's camp and its open country); where to

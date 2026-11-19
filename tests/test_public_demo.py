@@ -594,6 +594,56 @@ class InABrowser(unittest.TestCase):
         self.assertNotIn("Live TV", text)
         self.assertNotIn("open source", text)
 
+    def test_the_games_page_is_a_shelf_of_cards(self):
+        """The games in a browser (the demo shares them): the featured one across the top, then rows by kind; a card
+        is the game's own picture, its name, a line, its facts, and where it was left; three looks, one markup."""
+        self.visiting()
+        p = self.go("#/games", "!!document.querySelector('#view .games-page .game-card')")
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "deploy", "sofa-box", "games", "games.json"), encoding="utf-8") as f:
+            cat = json.load(f)
+        p.value("localStorage.removeItem('sofa:games:recent'); localStorage.removeItem('sofa.gamesLook'); localStorage.removeItem('shadow-heist'); 1")
+        p.value("location.hash = '#/'; 1")
+        p = self.go("#/games", "!!document.querySelector('#view .games-page .game-card')")
+        self.assertEqual(p.value("document.querySelector('.games-page').dataset.look"), "marquee")
+        hero = json.loads(p.value("""(h => JSON.stringify([h.dataset.gamePlay, h.querySelector('.game-kicker').textContent, h.querySelector('.game-hero-pic').getAttribute('src'),
+            [...h.querySelectorAll('.game-facts i')].map(i => i.textContent), h.querySelector('.game-go .btn').textContent.trim()]))(document.querySelector('.game-hero'))"""))
+        self.assertEqual(hero, [cat["featured"], "Featured", "/games/art/%s.jpg" % cat["featured"], ["Action RPG", "3D", "1 player", "Controller", "Keyboard", "Touch"], "Play"])
+        rows = json.loads(p.value("JSON.stringify([...document.querySelectorAll('.games-row')].map(r => [r.dataset.row, [...r.querySelectorAll('.game-card')].map(c => c.dataset.gamePlay)]))"))
+        kinds = ["adventure", "action", "racing", "mind", "arcade"]
+        self.assertEqual(rows, [[k, [g["id"] for g in cat["games"] if g["shelf"] == k]] for k in kinds])
+        card = json.loads(p.value("""(c => JSON.stringify([c.querySelector('b').textContent, c.querySelector('.game-line').textContent, c.querySelector('img').getAttribute('src'),
+            c.querySelector('img').loading, c.querySelector('.game-dim').textContent, !!c.querySelector('.game-where')]))(document.querySelector('.game-card[data-game-play="shadow-heist"]'))"""))
+        g = next(x for x in cat["games"] if x["id"] == "shadow-heist")
+        self.assertEqual(card, [g["name"], g["line"], "/games/art/small/shadow-heist.jpg", "lazy", "2D", False])
+        self.assertEqual(p.value("fetch('/games/art/small/shadow-heist.jpg').then(r => r.status + ' ' + r.headers.get('Content-Type'))"), "200 image/jpeg")
+        self.assertFalse(p.value("!!document.querySelector('.games-note, .game-ic')"))          # the old cards, and the note that touch can't play
+        # where it was left: the game's own save (the shape Shadow Heist keeps), and what was played last comes first
+        p.value("localStorage.setItem('shadow-heist', JSON.stringify({ v: 2, best: {}, reached: 4, heists: 6 })); localStorage.setItem('sofa:games:recent', JSON.stringify([{ id: 'shadow-heist' }, { id: 'tidewing' }])); 1")
+        p.value("location.hash = '#/'; 1")
+        p = self.go("#/games", "!!document.querySelector('#view .games-page .game-card')")
+        self.assertEqual(p.value("document.querySelector('.game-hero').dataset.gamePlay + '|' + document.querySelector('.game-hero .game-kicker').textContent + '|' + document.querySelector('.game-hero .game-where').textContent"),
+                         "shadow-heist|Pick up where you left it|4 of 12 heists pulled")
+        self.assertEqual(p.value("document.querySelector('.game-hero .game-go .btn').textContent.trim()"), "Continue")
+        self.assertEqual(p.value("[...document.querySelectorAll('.games-row[data-row=continue] .game-card')].map(c => c.dataset.gamePlay).join()"), "tidewing")
+        # three looks: the same cards, laid out another way, kept on this device
+        before = p.value("document.querySelector('.games-row[data-row=adventure]').innerHTML")
+        wide = p.value("document.querySelector('.games-row[data-row=adventure] .game-card').offsetWidth")
+        for look in ("shelf", "index"):
+            p.value("document.querySelector('[data-games-look=%s]').click(); 1" % look)
+            time.sleep(0.4)
+            self.assertEqual(p.value("document.querySelector('.games-page').dataset.look"), look)
+            self.assertEqual(p.value("document.querySelector('.games-row[data-row=adventure]').innerHTML"), before, look)
+            self.assertNotEqual(p.value("document.querySelector('.games-row[data-row=adventure] .game-card').offsetWidth"), wide, look)
+        self.assertEqual(p.value("localStorage.getItem('sofa.gamesLook')"), '"index"')
+        # a phone: no sideways scroll in any look
+        p.call("Emulation.setDeviceMetricsOverride", {"width": 375, "height": 812, "deviceScaleFactor": 2, "mobile": True})
+        for look in ("index", "shelf", "marquee"):
+            p.value("document.querySelector('[data-games-look=%s]').click(); 1" % look)
+            time.sleep(0.4)
+            self.assertLessEqual(p.value("document.documentElement.scrollWidth"), 375, look)
+        p.call("Emulation.clearDeviceMetricsOverride")
+        p.value("localStorage.removeItem('sofa:games:recent'); localStorage.removeItem('sofa.gamesLook'); localStorage.removeItem('shadow-heist'); 1")
+
     def test_a_titles_page_shows_its_rights_and_about_shows_the_channels(self):
         self.visiting()
         p = self.go("#/movies", "!!document.querySelector('#view a[href^=\"#/movie/\"]')")

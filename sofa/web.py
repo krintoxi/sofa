@@ -42,6 +42,7 @@ HOME_NETS = ("local", "lan", "tailnet")
 PROXY_HEADERS = ("X-Forwarded-For", "Forwarded", "X-Real-IP", "CF-Connecting-IP", "CF-Ray", "True-Client-IP", "CDN-Loop")
 UNKNOWN_INTERNET = "0.0.0.0"      # someone on the internet whose address the proxy didn't say (or can't be trusted to)
 GAMES_DIR = os.path.join(config.APP_DIR, "deploy", "sofa-box", "games")
+GAMES_ART = os.path.join(config.APP_DIR, "deploy", "sofa-box", "home", "art", "games")
 _proxy_noted = [0.0]
 
 
@@ -547,11 +548,14 @@ class Handler(BaseHTTPRequestHandler):
         if u.get("visitor") and not config.get("share_games"):
             return self.send_body("Not found", status=404)
         rel = os.path.normpath(rel or "index.html")
-        if rel.endswith(os.sep) or os.path.isdir(os.path.join(GAMES_DIR, rel)):
+        base, parts = GAMES_DIR, rel.split(os.sep)
+        if parts[0] == "art":                              # the games' pictures for the list (the box's Home has them)
+            base, rel = GAMES_ART, os.sep.join(parts[1:]) or "."
+        if rel.endswith(os.sep) or os.path.isdir(os.path.join(base, rel)):
             rel = os.path.join(rel, "index.html")
-        full = os.path.join(GAMES_DIR, rel)
+        full = os.path.join(base, rel)
         ext = os.path.splitext(full)[1].lower()
-        if rel.startswith((".", os.sep)) or ext not in (".html", ".js", ".json", ".svg", ".png", ".webp", ".jpg") \
+        if rel.startswith((".", os.sep)) or ext not in ((".jpg",) if base is GAMES_ART else (".html", ".js", ".json", ".svg", ".png", ".webp", ".jpg")) \
                 or rel.split(os.sep)[0] == "probe" or not os.path.isfile(full):
             return self.send_body("Not found", status=404)
         with open(full, "rb") as f:

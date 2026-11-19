@@ -6,6 +6,20 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.23 (2026-11-19)
+
+- **Games is a shelf of real cards.** The page was fourteen grey cards with an emoji each. Now the game you were
+  last in (or WYRD, the featured one) is across the top with its picture, and the rest are in rows by kind:
+  Adventures, Action, Racing, Puzzles and tactics, Quick ones. A card is the game's own picture (taken from the game
+  playing), its name, a line, its kind, 2D or 3D, who plays and with what, and **where you left it**, read from the
+  game's own save in this browser ("Wren, level 12", "4 of 12 heists pulled"). Continue lists what you played last.
+- **Three looks**, chosen at the top of the page and kept on this device: Marquee (wide pictures), Shelf (covers)
+  and Index (a list). On a phone a card is a picture beside its words, so three fit a screen.
+- The note that the games want a keyboard or a controller is gone: they have had touch controls since Sofa Box OS
+  1.1.93, and each card says what a game is played with.
+- Sofa serves the games' pictures at `/games/art/` (the Sofa Box's own, from its Home), to the same people as the
+  games.
+
 ## 1.5.22 (2026-11-18)
 
 - **A daily show's episodes are episodes.** The Inbox has long filed a show by date ("The Daily Show 2024 03 15", a

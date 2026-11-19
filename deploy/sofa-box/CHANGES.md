@@ -8,6 +8,35 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.97
+
+**The Games page: every game a real card.** The owner's word for it was "meh".
+
+- **New pictures of all fourteen games, taken from the games themselves.** Three of the old ones were title screens,
+  WYRD's was a floor of the Maw from before it had a country, and most had the game's own writing all over them. A
+  new tool, `tools/game-art.mjs`, opens each game, brings it to a moment worth showing (`tools/game-art.json`: playing
+  itself, or stood somewhere with its writing put away) and photographs it: the picture behind the page (1280 x 720),
+  a row's small copy (640 x 360) and, new, **a square face** for a small tile (256 x 256). WYRD is Hearthrim's square
+  at dusk. Nothing in a picture comes from outside the game.
+- **A card says what the game is.** Under its name: its kind, 2D or 3D, who plays. On the game the remote rests on:
+  its kind, 2D or 3D, players, and what it's played with (controller, keyboard, touch, and the TV's remote for the
+  three games that need no more than arrows and OK). These are in `games.json` now (`kind`, `shelf`, `dim`, `with`,
+  `line`) and the tests hold each against the game's own page: 3D is the engine it loads, the remote is its layout.
+- **Where you left it.** Continue's cards say where each game stands, from the game's own save: "Wren, level 12",
+  "5 of 12 courses open", "4 of 12 heists pulled", "Stage 3 of 5". OK on a game you've played says **Continue** and
+  where, with a bar where the game has an end to count towards. The saves are read by one new file,
+  `games/shelf.js`, never written; only for Continue's few and the game in focus, never the whole list.
+- **Rows by kind**: Continue, then Adventures, Action, Racing, Puzzles and tactics, Quick ones, Play together; then
+  the games from Debian, more to get, controllers, as before. On a box where nothing has been played yet, the first
+  row is WYRD and the newest. (New on the box and The box's own, which listed everything twice, are gone.)
+- **Three looks, one markup**, on the page's last row: **Marquee** (wide pictures: the default), **Shelf** (covers,
+  the name on the picture, more to a row) and **Index** (a list in a fixed-width face). The choice is kept on the box.
+- **Home's row of games starts with the ones worth seeing**: what you played last, then WYRD, then the newest (it
+  opened on the three smallest games). Its tiles use the small pictures (they were the full 1280 x 720, a tile's
+  size four times over), and say Continue and where. On Classic, a game's tile shows its face, not an emoji.
+- A Pi 3's rules are as they were: a press draws the ring and nothing else, the picture behind changes once the
+  remote rests, and stands still.
+
 ## 1.1.96
 
 **Trees that are grown, and the maker's kit screen.**

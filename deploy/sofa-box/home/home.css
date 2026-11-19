@@ -953,6 +953,46 @@ html[data-icons="sticker"] .spt-big.framed { rotate: -3deg; }
 .gp .tile.spt-art { flex: 0 0 13.2rem; }
 .gp .tile.spt-art small { font-size: .66rem; font-weight: 600; color: var(--mist); margin-top: -.35rem; text-align: left; }
 .gp .tile.spt-art.off { opacity: .45; }
+.gp-dim { position: absolute; right: .4rem; top: .4rem; padding: .12rem .34rem; border-radius: .28rem; font: 800 .56rem var(--text); font-style: normal;
+  letter-spacing: .06em; color: #fff; background: rgba(0,0,0,.62); }
+.gp .tile.gp-tile .spt-pic { border-bottom: .16rem solid var(--gc, transparent); }
+/* the page's look (its last row): three ways to lay the same cards out */
+.gp .tile.app.gp-look .ic { background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
+.gp .tile.app.gp-look[aria-pressed="true"] .ic { background: var(--a); }
+.gp-look-ic { display: block; width: 2.6rem; height: 1.9rem; border-radius: .2rem; background: var(--fg); opacity: .9; }
+.gp-look-ic.marquee { background: linear-gradient(var(--fg) 0 0) 0 0 / 100% 62% no-repeat, linear-gradient(var(--fg) 0 0) 0 100% / 60% 16% no-repeat; }
+.gp-look-ic.shelf { width: 2.6rem; background: linear-gradient(90deg, var(--fg) 0 28%, transparent 28% 36%, var(--fg) 36% 64%, transparent 64% 72%, var(--fg) 72%); }
+.gp-look-ic.index { background: repeating-linear-gradient(var(--fg) 0 .28rem, transparent .28rem .54rem); }
+/* Shelf: covers. The name is on the picture, the facts under it. */
+.gp[data-look="shelf"] .tile.spt-art.gp-tile { flex: 0 0 8.4rem; position: relative; }
+.gp[data-look="shelf"] .gp-tile .spt-pic { aspect-ratio: 3 / 4; border-bottom: 0; border-left: .2rem solid var(--gc, transparent); }
+.gp[data-look="shelf"] .gp-tile .spt-pic::after { content: ""; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(0,0,0,.9) 4%, rgba(0,0,0,.3) 40%, transparent 58%); }
+.gp[data-look="shelf"] .gp-tile > b { position: absolute; left: .7rem; right: .5rem; top: 0; padding-top: calc(133.33% - 2.9rem); height: 0; overflow: visible;
+  font: 800 .98rem/1 var(--display); letter-spacing: -.01em; text-transform: uppercase; color: #fff; white-space: normal; pointer-events: none; }
+.gp[data-look="shelf"] .tile.spt-art small { display: none; }
+.gp[data-look="shelf"] .spt-rows { top: 16.6rem; }
+.gp[data-look="shelf"] .spt-meta { -webkit-line-clamp: 2; }
+/* Index: a list. A small picture, the name and the facts beside it, in the box's fixed-width face. */
+.gp[data-look="index"] { --mono: ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace; }
+.gp[data-look="index"] .tile.spt-art.gp-tile { flex: 0 0 16.5rem; display: grid; grid-template-columns: 6.4rem minmax(0, 1fr); grid-template-rows: 1fr 1fr; column-gap: .7rem; row-gap: .15rem;
+  align-items: center; padding: .35rem; border-radius: var(--r); background: color-mix(in srgb, var(--bg2) 82%, transparent); box-shadow: inset .16rem 0 0 var(--gc, transparent); }
+.gp[data-look="index"] .gp-tile .spt-pic { grid-row: 1 / 3; border-bottom: 0; border-radius: .35rem; }
+html:not(.lite) .gp[data-look="index"] .tile.spt-art.gp-tile.f .spt-pic { transform: none; }
+.gp[data-look="index"] .gp-tile .gp-dim { display: none; }
+.gp[data-look="index"] .gp-tile > b { align-self: end; font: 700 .8rem var(--mono); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gp[data-look="index"] .tile.spt-art small { align-self: start; margin: 0; font: 500 .58rem/1.25 var(--mono); }
+.gp[data-look="index"] .spt-title { font: 700 2.5rem/1 var(--mono); letter-spacing: -.04em; }
+.gp[data-look="index"] .spt-title::before { content: "> "; color: var(--a); }
+.gp[data-look="index"] .spt-kicker, .gp[data-look="index"] .spt-meta, .gp[data-look="index"] .spt-ok { font-family: var(--mono); }
+.gp[data-look="index"] .spt-meta { font-size: .8rem; }
+.gp[data-look="index"] .spt-chips span { border-radius: .2rem; font: 600 .64rem var(--mono); }
+.gp[data-look="index"] .row-title { font: 700 .74rem var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.gp[data-look="index"] .row-title::before { content: "# "; color: var(--a); }
+html.lite .gp[data-look="index"] .tile.spt-art.gp-tile { background: var(--bg2); }
+html:not(.lite) .spt .gp[data-look="index"] .tile.spt-art.gp-tile.f, html:not(.lite) .spt.gp[data-look="index"] .tile.spt-art.gp-tile.f { background: color-mix(in srgb, var(--bg2) 82%, transparent); box-shadow: inset .16rem 0 0 var(--gc, transparent); }
+/* Home, Classic: a game's face in its tile */
+.tile.app .ic.game-face { overflow: hidden; }
+.tile.app .ic.game-face img { width: 100%; height: 100%; object-fit: cover; }
 .gp-on { position: absolute; left: .45rem; top: .45rem; padding: .1rem .45rem; border-radius: .35rem; font: 700 .6rem var(--text); font-style: normal;
   background: var(--a); color: var(--a-ink); }
 /* a game with no photograph: a poster of its icon on its colour, its name in the display face */

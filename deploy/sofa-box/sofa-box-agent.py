@@ -2798,7 +2798,7 @@ class Games:
             free = None
         with self.lock:
             job = dict(self.job) if self.job else None
-        return {"games": self.catalog()["games"], "native": native, "job": job, "playing": self.playing,
+        return {"games": self.catalog()["games"], "featured": self.catalog().get("featured"), "native": native, "job": job, "playing": self.playing,
                 "pads": self.pads_now(), "free_mb": free, "board": board()["gen"]}
 
     def change(self, gid, action):

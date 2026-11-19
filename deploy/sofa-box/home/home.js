@@ -400,7 +400,7 @@
     const plugged = inputsRow();
     if (plugged) rows.push(`<section class="spt-row" data-row="plugged">${plugged}</section>`);
     if (games && games.games.length) rows.push(sptRow("games", "Games", (games.native || []).filter(g => g.installed).map(g => `<button class="tile app spt-app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")
-      + games.games.map(g => GAME_ART.has(g.id) ? sptArt(`data-game="${esc(g.id)}"`, "/box/home/art/games/" + g.id + ".jpg", g.name)
+      + gamesInOrder().map(g => GAME_ART.has(g.id) ? sptArt(`data-game="${esc(g.id)}"`, "/box/home/art/games/small/" + g.id + ".jpg", g.name)
         : `<button class="tile app spt-app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")
       + `<button class="tile app spt-app" data-go="#/games"><span class="ic plus">${icon("#i-plus")}</span><b>More games</b></button>`));
     return `<div class="spt view-in"><div class="spt-detail">${powerLine()}<div class="spt-text" id="sptText">${sptText(spot.shelf)}</div></div>
@@ -417,7 +417,8 @@
     }
     if (d.game && games) {
       const g = games.games.find(x => x.id === d.game);
-      if (g) return GAME_ART.has(g.id) ? { key: "game:" + g.id, art: "/box/home/art/games/" + g.id + ".jpg", kicker: "Game", title: g.name, meta: g.about || "", ok: "Play" }
+      const w = g && whereIs(g.id);
+      if (g) return GAME_ART.has(g.id) ? { key: "game:" + g.id, art: "/box/home/art/games/" + g.id + ".jpg", kicker: g.kind || "Game", title: g.name, meta: g.about || "", chips: Shelf.facts(g), ok: w ? "Continue: " + w.line : "Play" }
         : field("game:" + g.id, { name: g.name, color: g.color, emoji: g.emoji || g.name[0] }, "Game", g.name, g.about || "", "Play");
     }
     if (d.play && games) {
@@ -523,7 +524,7 @@
             <b>${esc(runName(r, a))}</b><small>${esc(a.name || "")}</small><span class="x" data-close="${esc(r.target)}" title="Close">${icon("#i-close")}</span></button>`; }).join("")}</div>` : ""}
       <h2 class="row-title">Your apps <small>${rest.length}</small></h2><div class="rail">${rest.map(a => appTile(a)).join("")}
         <button class="tile app" data-go="#/store"><span class="ic plus">${icon("#i-plus")}</span><b>Get more</b></button></div>
-      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")}${games.games.map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji">${esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
+      ${games && games.games.length ? `<h2 class="row-title">Games</h2><div class="rail">${(games.native || []).filter(g => g.installed).map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-play="${esc(g.id)}"><span class="ic emoji">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join("")}${gamesInOrder().map(g => `<button class="tile app" style="--c:${esc(g.color)}" data-game="${esc(g.id)}"><span class="ic emoji game-face">${GAME_ART.has(g.id) ? `<img decoding="async" loading="lazy" src="/box/home/art/games/icon/${esc(g.id)}.jpg" alt="" onerror="this.replaceWith('${esc(g.emoji || g.name[0])}')">` : esc(g.emoji || g.name[0])}</span><b>${esc(g.name)}</b></button>`).join("")}
         <button class="tile app" data-go="#/games"><span class="ic plus">${icon("#i-plus")}</span><b>More games</b></button></div>` : ""}
     </div>`;
   }
@@ -690,27 +691,53 @@
   const PAD_HOME = { xbox: "the Xbox button", playstation: "the PS button" };
   // a game's own picture (games/icons/), or its emoji
   function gameIc(g) { return g.icon ? `<img decoding="async" class="game-ic" src="/box/games/${esc(g.icon)}" alt="">` : esc(g.emoji || g.name[0]); }
-  // The Games page is a store, in Spotlight's way: behind it, the game the remote is on (its photograph, playing itself,
-  // or for a game from Debian its icon on its colour) with its name, a line about it, who plays and with what; rows
-  // below. Continue (what was played last on this box), New, Two or more players, the box's own, from Debian, more to
-  // get, controllers. A row's pictures are small copies (art/games/small: 640 × 360, a tile's size on the TV), each
-  // loaded when it comes near the screen; the big one is only the one behind. On a Pi 3 the picture behind changes once
-  // the remote rests, as on Home, and stands still; elsewhere it drifts a little.
+  // The Games page is a store, in Spotlight's way: behind it, the game the remote is on (its picture, taken from the
+  // game playing: tools/game-art.mjs; for a game from Debian its icon on its colour) with its name, a line about it,
+  // its kind, 2D or 3D, who plays and with what, and where it was left; rows below. Continue (what was played last on
+  // this box, each with where it stands), then the box's own by kind, Play together, from Debian, more to get,
+  // controllers, and the page's look. A row's pictures are small copies (art/games/small: 640 × 360, a tile's size on
+  // the TV), each loaded when it comes near the screen; the big one is only the one behind. On a Pi 3 the picture
+  // behind changes once the remote rests, as on Home, and stands still; elsewhere it drifts a little.
   const RECENT = "sofa:games:recent";
   function recentGames() { try { const r = JSON.parse(localStorage.getItem(RECENT) || "[]"); return Array.isArray(r) ? r : []; } catch (e) { return []; } }
   function notePlayed(id) {
     try { const r = recentGames().filter(x => x && x.id !== id); r.unshift({ id }); localStorage.setItem(RECENT, JSON.stringify(r.slice(0, 8))); } catch (e) { /* not kept */ }   // (newest first: the order is all it needs)
   }
   const whoPlays = n => n >= 4 ? "1 to 4 players" : n >= 2 ? "1 or 2 players" : "1 player";
-  const GP_ROWS = { continue: "Continue", new: "New on the box", two: "Two or more players", own: "The box's own", debian: "From Debian, on the box",
-                    get: "Get it, free", pads: "Controllers", remove: "Remove a game" };
+  // The box's own games are shelved by kind, and a card says what the game is: its kind, 2D or 3D, who plays and with
+  // what, and where you left it (the game's own save, read by the games' shelf.js: the same file Sofa's list in a
+  // browser uses). A save is read for the game the remote rests on and for Continue's few, never for the whole list.
+  const Shelf = window.SofaShelf || { KINDS: [], rows: () => [], facts: g => [whoPlays(g.players || 1)], where: () => null };
+  const GP_ROWS = Object.assign({ continue: "Continue", featured: "Featured", together: "Play together", debian: "From Debian, on the box",
+                                  get: "Get it, free", pads: "Controllers", remove: "Remove a game", look: "This page's look" },
+                                Object.fromEntries(Shelf.KINDS));
+  const stands = {};                                  // where each game was left, read once a page (viewGames clears it)
+  function whereIs(id) {
+    if (!(id in stands)) { try { stands[id] = Shelf.where(id, k => localStorage.getItem(k)); } catch (e) { stands[id] = null; } }
+    return stands[id];
+  }
+  // Three looks, one markup (home.css, .gp[data-look]): Marquee (wide pictures), Shelf (covers), Index (a list). The
+  // last row of the page changes it; it's kept on the box.
+  const GP_LOOKS = [["marquee", "Marquee", "Wide pictures, a line under each."], ["shelf", "Shelf", "Covers, side by side: more games to a row."],
+                    ["index", "Index", "A list: small pictures, the facts beside them."]], GP_LOOK = "marquee", LOOK_KEY = "sofa:games:look";
+  function gpLook() { let v = ""; try { v = localStorage.getItem(LOOK_KEY) || ""; } catch (e) { /* the default */ } return GP_LOOKS.some(l => l[0] === v) ? v : GP_LOOK; }
+  const gpFacts = g => [g.kind, g.dim, whoPlays(g.players || 1)].filter(Boolean).join(" · ");
+  // Home's row of games: the ones played last, then the featured one, then the newest
+  function gamesInOrder() {
+    const all = games.games, seen = new Set(), out = [];
+    const add = g => { if (g && !seen.has(g.id)) { seen.add(g.id); out.push(g); } };
+    recentGames().forEach(r => add(r && all.find(g => g.id === r.id)));
+    add(all.find(g => g.id === games.featured));
+    all.slice().sort((x, y) => String(y.added || "").localeCompare(String(x.added || ""))).forEach(add);
+    return out;
+  }
   function gpPoster(g) {                             // a game with no photograph: its icon on its colour, its name
     const w = Math.max(...g.name.split(" ").map(x => x.length)), size = w > 10 ? " xlong" : w > 7 || g.name.length > 14 ? " long" : "";   // (a long word can't wrap)
     return `<span class="gp-poster${size}" style="--c:${esc(g.color || "")}"><span class="gp-poster-ic">${gameIc(g)}</span><span class="gp-poster-name">${esc(g.name)}</span></span>`;
   }
   function gpTile(g, attrs, line, off) {
     const pic = GAME_ART.has(g.id) ? `<img decoding="async" loading="lazy" src="/box/home/art/games/small/${esc(g.id)}.jpg" alt="" onerror="this.remove()">` : gpPoster(g);
-    return `<button class="tile spt-art gp-tile${off ? " off" : ""}" ${attrs}${off ? " disabled" : ""}><span class="spt-pic">${pic}${g.playing ? `<i class="gp-on">Playing now</i>` : ""}</span>
+    return `<button class="tile spt-art gp-tile${off ? " off" : ""}" style="--gc:${esc(g.color || "")}" ${attrs}${off ? " disabled" : ""}><span class="spt-pic">${pic}${g.playing ? `<i class="gp-on">Playing now</i>` : ""}${g.dim ? `<i class="gp-dim">${esc(g.dim)}</i>` : ""}</span>
       <b>${esc(g.name)}</b><small>${esc(line)}</small></button>`;
   }
   function viewGames() {
@@ -720,27 +747,30 @@
     const job = games.job && games.job.state === "working" ? games.job : null;
     const native = games.native || [], have = native.filter(g => g.installed), more = native.filter(g => !g.installed);
     const all = have.concat(games.games), act = g => native.includes(g) ? `data-play="${esc(g.id)}"` : `data-game="${esc(g.id)}"`;
-    const tile = g => gpTile(g, act(g), whoPlays(g.players || 1));
+    for (const k in stands) delete stands[k];
+    const tile = g => gpTile(g, act(g), gpFacts(g));
+    const left = g => gpTile(g, act(g), (whereIs(g.id) || {}).line || gpFacts(g));     // Continue: where it was left
     const row = (id, inner, small) => inner ? sptRow(id, GP_ROWS[id] + (small ? ` <small>${small}</small>` : ""), inner) : "";
     const recent = recentGames().map(r => r && all.find(g => g.id === r.id)).filter(Boolean).slice(0, 6);
-    const fresh = all.slice().sort((x, y) => String(y.added || "").localeCompare(String(x.added || ""))).slice(0, 5);
-    const pads = games.pads || [];
+    // nothing played yet: the featured game first, then the newest (a row of one would leave Right nowhere to go)
+    const first = recent.length ? "" : row("featured", gamesInOrder().slice(0, 5).map(tile).join(""), "and the newest");
+    const look = gpLook(), pads = games.pads || [];
     const getLine = g => job && job.id === g.id ? (job.action === "install" ? "Getting it: a few minutes" : "Removing it…")
       : !g.fits ? `Needs a Raspberry Pi ${g.pi} or 5` : `Free · about ${g.mb >= 1000 ? (g.mb / 1000).toFixed(1) + " GB" : g.mb + " MB"}`;
     const rows = [
-      row("continue", recent.map(tile).join("")),
-      row("new", fresh.map(tile).join("")),
-      row("two", all.filter(g => (g.players || 1) >= 2).map(tile).join(""), "on one screen, a controller each"),
-      row("own", games.games.map(tile).join(""), "made for the box, played with a controller or the keys"),
+      row("continue", recent.map(left).join("")), first]
+      .concat(Shelf.rows(games.games).map(r => row(r.id, r.games.map(tile).join("")))).concat([
+      row("together", all.filter(g => (g.players || 1) >= 2).map(tile).join(""), "on one screen, a controller each"),
       row("debian", have.map(tile).join("")),
       row("get", more.map(g => gpTile(g, `data-game-get="${esc(g.id)}"`, getLine(g), !g.fits)).join(""), "each one's licence is in Settings → This box → Credits"),
       sptRow("pads", GP_ROWS.pads + (pads.length ? ` <small>${pads.map(p => esc(PAD_NAMES[p.kind] || "Controller")).join(" · ")}: ready</small>` : " <small>none yet</small>"),
         `<button class="tile app spt-app gp-pad" data-bt-look="1"><span class="ic plus">${icon("#i-games")}</span><b>${pads.length ? "Another one" : "Connect one"}</b></button>
         <div id="btList" class="bt-list gp-bt">${btList()}</div>`),
       row("remove", have.map(g => `<button class="tile app spt-app gp-remove" data-game-remove="${esc(g.id)}"><span class="ic" style="--c:${esc(g.color)}">${gameIc(g)}</span><b>${esc(g.name)}</b></button>`).join(""),
-        games.free_mb != null ? `${(games.free_mb / 1024).toFixed(1)} GB free on the box` : "")
-    ];
-    return `<div class="spt gp view-in"><div class="spt-detail"><div class="spt-text" id="sptText">${sptText(spot.shelf)}</div></div>
+        games.free_mb != null ? `${(games.free_mb / 1024).toFixed(1)} GB free on the box` : ""),
+      sptRow("look", GP_ROWS.look, GP_LOOKS.map(([v, name]) => `<button class="tile app spt-app gp-look" data-gp-look="${v}" aria-pressed="${v === look}"><span class="ic"><i class="gp-look-ic ${v}"></i></span><b>${name}</b></button>`).join(""))
+    ]);
+    return `<div class="spt gp view-in" data-look="${look}"><div class="spt-detail"><div class="spt-text" id="sptText">${sptText(spot.shelf)}</div></div>
       <div class="spt-rows" id="sptRows">${rows.join("")}</div></div>`;
   }
   // what the remote is on, on the Games page: the picture behind and the words over it
@@ -750,8 +780,10 @@
     const sh = (key, g, more) => Object.assign({ key, c: (g && g.color) || "var(--a)", kicker, title: g ? g.name : "", meta: (g && g.about) || "" }, more);
     if (d.game && games) {
       const g = games.games.find(x => x.id === d.game); if (!g) return null;
+      const w = whereIs(g.id);
       return sh("gp:" + g.id, g, { art: GAME_ART.has(g.id) ? "/box/home/art/games/" + g.id + ".jpg" : null, app: { name: g.name, color: g.color, emoji: g.emoji || g.name[0] },
-        chips: [whoPlays(g.players || 1), "Controller or keys", "Plays on the box, no internet needed"], ok: "Play" });
+        kicker: rowId === "continue" ? "Pick up where you left it" : kicker, chips: Shelf.facts(g), pct: w && w.pct != null ? w.pct : null,
+        ok: w ? "Continue: " + w.line : "Play" });
     }
     const n = native.find(x => x.id === (d.play || d.gameGet || d.gameRemove));
     if (n && d.play) return sh("gp:" + n.id, n, { app: { name: n.name, color: n.color, game: n },
@@ -761,6 +793,8 @@
       ok: n.fits ? "Get it: a few minutes, then it plays offline" : "Not on this box" });
     if (n && d.gameRemove) return sh("gp-rm:" + n.id, n, { app: { name: n.name, color: n.color, game: n }, title: "Remove " + n.name,
       meta: `Frees about ${n.mb} MB. You can get it again any time, from the row above.`, ok: "Remove (press twice)" });
+    if (d.gpLook) { const l = GP_LOOKS.find(x => x[0] === d.gpLook) || GP_LOOKS[0];
+      return sh("gp-look:" + l[0], null, { app: { name: "", color: "var(--a)", input: "#i-games" }, title: l[1], meta: l[2], ok: l[0] === gpLook() ? "This is the look now" : "Use this look" }); }
     if (d.btLook) return sh("gp-pads", null, { app: { name: "", color: "var(--a)", input: "#i-games" }, title: pads.length ? "Another controller" : "Connect a controller",
       meta: pads.length ? `Ready: every game here works with it. To come back from a game, hold ${PAD_HOME[pads[0].kind] || "Home"} for a second. Another one: put it in pairing mode, then OK.`
         : "Put it in pairing mode, then OK here: the box finds it and knows which kind it is. A cable works as soon as it's in.",
@@ -1771,7 +1805,8 @@
       else if (d.browserForget) { await api("/box/api/browser/forget", {}); browserStart = null; toast("Recent sites cleared."); loadBrowserStart(); }
       else if (d.credit) creditSheet(d.credit);
       else if (d.tvBrand) tvSheet(d.tvBrand);
-      else if (d.game) { notePlayed(d.game); open({ url: location.origin + "/box/games/" + d.game + "/" }); }
+      else if (d.gpLook) { try { localStorage.setItem(LOOK_KEY, d.gpLook); } catch (e) { /* not kept */ } render(true); }
+      else if (d.game) { notePlayed(d.game); delete stands[d.game]; open({ url: location.origin + "/box/games/" + d.game + "/" }); }
       else if (d.play) { const g = (games.native || []).find(x => x.id === d.play) || { name: d.play }; notePlayed(d.play);
         await api("/box/api/games", { action: "play", id: d.play });
         toast("Starting " + g.name + "… To come back, hold Home for a second."); }
@@ -1938,7 +1973,7 @@
       : [["OK", "Choose"], ["Back", "Home screen"]]);
   }
   function keyOf(el) {
-    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget", "inst"]) {
+    for (const a of ["music", "cw", "app", "store", "game", "play", "gameGet", "gameRemove", "gpLook", "file", "root", "set", "themePick", "move", "hide", "action", "target", "go", "url", "server", "pick", "addFound", "drive", "disc", "default", "forgetServer", "ask", "bt", "wifiPick", "tz", "step", "btLook", "setTab", "wifiRescan", "kb", "browserForget", "inst"]) {
       if (el.dataset[a] !== undefined) {
         const attr = "data-" + a.replace(/[A-Z]/g, c => "-" + c.toLowerCase());
         return `[${attr}="${CSS.escape(el.dataset[a])}"]` + (el.dataset.by ? `[data-by="${el.dataset.by}"]` : "") + (el.dataset.value ? `[data-value="${el.dataset.value}"]` : "");
@@ -1964,6 +1999,7 @@
     if (document.hidden || mono() - lastRefresh < 1500) return;
     lastRefresh = mono();
     opening(null);
+    for (const k in stands) delete stands[k];        // (back from a game: where it stands now is read again)
     await loadApps(); await loadSofa();
     if (!$(".sheet-back")) render(true);
   });

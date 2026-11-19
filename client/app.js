@@ -1463,27 +1463,65 @@ function viewMyList() {
 /* ---------- Games: the Sofa Box's page games, in the browser off a box (a box has them on its own home screen) ---------- */
 let gamesList = null;
 const gamesOn = () => !window.SofaBox && !(visitorMode() && !(session.share || {}).games);
-const touchOnly = () => matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches &&
-  !(navigator.getGamepads && [...navigator.getGamepads()].some(Boolean));
+// The page is a shelf: the game you were last in (or the featured one) across the top, then the games row by row, by
+// kind. A card is the game's own picture (taken from it playing: tools/game-art.mjs), its name, a line, what kind it
+// is, who plays and with what, and where you left it, read from the game's own save. What the rows and the facts are
+// comes from the games' own shelf.js, the same one the Sofa Box's Games page uses. Three looks, one markup: Marquee
+// (wide pictures), Shelf (covers) and Index (a list), chosen at the top of the page and kept on this device.
+const GAME_LOOKS = [["marquee", "Marquee"], ["shelf", "Shelf"], ["index", "Index"]], GAME_LOOK = "marquee";
+const gameLook = () => { const v = prefs.get("gamesLook", GAME_LOOK); return GAME_LOOKS.some(l => l[0] === v) ? v : GAME_LOOK; };
+const GAMES_RECENT = "sofa:games:recent";
+function gamesRecent() { try { const r = JSON.parse(localStorage.getItem(GAMES_RECENT) || "[]"); return Array.isArray(r) ? r.map(x => x && x.id).filter(Boolean) : []; } catch (e) { return []; } }
+function gamePlayed(id) { try { localStorage.setItem(GAMES_RECENT, JSON.stringify([id].concat(gamesRecent().filter(x => x !== id)).slice(0, 8).map(x => ({ id: x })))); } catch (e) { /* not kept */ } }
+const gameWhere = g => { try { return window.SofaShelf ? SofaShelf.where(g.id, k => localStorage.getItem(k)) : null; } catch (e) { return null; } };
+function gameCard(g) {
+  const S = window.SofaShelf, w = gameWhere(g), facts = S ? S.facts(g) : [];
+  return `<button class="game-card" style="--c:${esc(g.color || "#7A8BA8")}" data-game-play="${esc(g.id)}">
+    <span class="game-pic"><img loading="lazy" decoding="async" width="640" height="360" src="/games/art/small/${esc(g.id)}.jpg" alt="" onerror="this.remove()">${g.dim ? `<i class="game-dim">${esc(g.dim)}</i>` : ""}</span>
+    <span class="game-txt"><b>${esc(g.name)}</b><small class="game-line">${esc(g.line || g.about || "")}</small>
+      <span class="game-facts">${facts.map((f, i) => `<i${i === 1 ? ` class="dim"` : ""}>${esc(f)}</i>`).join("")}</span>
+      ${w ? `<span class="game-where">${w.pct != null ? `<span class="game-bar"><i style="width:${Math.max(3, w.pct)}%"></i></span>` : ""}${esc(w.line)}</span>` : ""}</span></button>`;
+}
 function viewGames() {
   setGlow("");
   if (!gamesList) {
-    api("/games/games.json").then(d => { gamesList = d.games || []; }).catch(() => { gamesList = []; })
+    const shelf = new Promise(ok => {                    // (the rows and the facts: the games' own, beside the list)
+      if (window.SofaShelf) return ok();
+      const s = document.createElement("script"); s.src = "/games/shelf.js"; s.onload = s.onerror = ok; document.head.appendChild(s);
+    });
+    Promise.all([api("/games/games.json").then(d => { gamesList = d.games || []; gamesList.featured = d.featured || ""; }).catch(() => { gamesList = []; }), shelf])
       .then(() => { if (location.hash.startsWith("#/games")) rerender(); });
     return `<section class="page"><div class="page-head"><h1>Games</h1></div><p class="count">Loading…</p></section>`;
   }
-  return `<section class="page games-page"><div class="page-head"><h1>Games</h1><span class="count">Free, right here in the browser. Play with a keyboard or a game controller.</span></div>
-    ${touchOnly() ? `<p class="games-note">${icon("i-games")}<span>These games want a keyboard or a game controller. Connect one to this ${matchMedia("(min-width: 700px)").matches ? "tablet" : "phone"}, or play on a computer or a <a href="#/sofabox">Sofa Box</a>.</span></p>` : ""}
-    ${gamesList.length ? `<div class="games-grid">${gamesList.map(g => `<button class="game-card" style="--c:${esc(g.color || "#7A8BA8")}" data-game-play="${esc(g.id)}">
-      <span class="game-ic" aria-hidden="true">${esc(g.emoji || g.name[0])}</span><span class="game-txt"><b>${esc(g.name)}</b><small>${esc(g.about || "")}</small></span></button>`).join("")}</div>`
-      : `<p class="count">The games didn't load. Update Sofa (Server → Updates) and try again.</p>`}</section>`;
+  if (!gamesList.length) return `<section class="page games-page"><div class="page-head"><h1>Games</h1></div><p class="count">The games didn't load. Update Sofa (Server → Updates) and try again.</p></section>`;
+  const S = window.SofaShelf, look = gameLook(), by = id => gamesList.find(g => g.id === id);
+  const recent = gamesRecent().map(by).filter(Boolean);
+  const top = recent[0] || by(gamesList.featured) || gamesList[gamesList.length - 1], w = gameWhere(top);
+  const rows = (S ? S.rows(gamesList) : []).concat(S ? [] : [{ id: "all", title: "All of them", games: gamesList }]);
+  const row = (id, title, list, small) => list.length ? `<section class="games-row" data-row="${esc(id)}"><h2>${esc(title)}${small ? ` <small>${esc(small)}</small>` : ""}</h2><div class="games-grid">${list.map(gameCard).join("")}</div></section>` : "";
+  return `<section class="page games-page" data-look="${look}"><div class="page-head"><h1>Games</h1><span class="count">${gamesList.length} of our own, free, right here in the browser.</span>
+      <span class="games-looks" role="group" aria-label="How the page looks">${GAME_LOOKS.map(([v, name]) => `<button data-games-look="${v}" aria-pressed="${v === look}">${name}</button>`).join("")}</span></div>
+    <div class="game-hero" style="--c:${esc(top.color || "#7A8BA8")}" data-game-play="${esc(top.id)}">
+      <img class="game-hero-pic" decoding="async" width="1280" height="720" src="/games/art/${esc(top.id)}.jpg" alt="" onerror="this.remove()">
+      <span class="game-hero-txt"><i class="game-kicker">${recent[0] ? "Pick up where you left it" : "Featured"}</i><b>${esc(top.name)}</b>
+        <span class="game-about">${esc(top.about || top.line || "")}</span>
+        <span class="game-facts">${(S ? S.facts(top) : []).map((f, i) => `<i${i === 1 ? ` class="dim"` : ""}>${esc(f)}</i>`).join("")}</span>
+        <span class="game-go"><button class="btn primary" data-game-play="${esc(top.id)}">${icon("i-play")} ${w ? "Continue" : "Play"}</button>${w ? `<span class="game-where">${w.pct != null ? `<span class="game-bar"><i style="width:${Math.max(3, w.pct)}%"></i></span>` : ""}${esc(w.line)}</span>` : ""}</span></span>
+    </div>
+    ${row("continue", "Continue", recent.slice(1, 7))}
+    ${rows.map(r => row(r.id, r.title, r.games)).join("")}</section>`;
 }
+document.addEventListener("click", e => {
+  const b = e.target.closest && e.target.closest("[data-games-look]");
+  if (b) { prefs.set("gamesLook", b.dataset.gamesLook); rerender(); }
+});
 const GamePlayer = (() => {
   let el = null, back = null;
   function open(id) {
     const g = (gamesList || []).find(x => x.id === id);
     if (!g || el) return;
     back = document.activeElement;
+    gamePlayed(g.id);
     el = document.createElement("div");
     el.className = "game-stage";
     el.setAttribute("role", "dialog"); el.setAttribute("aria-label", g.name);
@@ -1518,7 +1556,8 @@ const GamePlayer = (() => {
     if (document.fullscreenElement === el) document.exitFullscreen().catch(() => {});
     el.remove(); el = null;
     document.documentElement.classList.remove("gaming");
-    if (back && back.isConnected) back.focus({ preventScroll: true });
+    if (location.hash.startsWith("#/games")) rerender();         // (the card says where the game was left)
+    else if (back && back.isConnected) back.focus({ preventScroll: true });
   }
   window.addEventListener("popstate", close);
   document.addEventListener("click", e => {
