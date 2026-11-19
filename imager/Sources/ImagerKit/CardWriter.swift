@@ -1,4 +1,7 @@
 import Foundation
+#if os(Windows)
+import CRT
+#endif
 
 /// Somewhere a card can be written: a raw disk (`/dev/rdiskN`) in the app, a plain file in tests.
 public protocol BlockDevice: AnyObject {
@@ -348,7 +351,7 @@ public final class FileDescriptorDevice: BlockDevice {
     public let fd: Int32
     private let extraSync: ((Int32) -> Void)?
 
-    /// - Parameter extraSync: run after fsync, e.g. to ask the card reader to flush its own cache.
+    /// - Parameter extraSync: run after the flush (`fsync`), e.g. to ask the card reader to flush its own cache.
     public init(fd: Int32, extraSync: ((Int32) -> Void)? = nil) {
         self.fd = fd
         self.extraSync = extraSync
@@ -357,10 +360,10 @@ public final class FileDescriptorDevice: BlockDevice {
     public func write(_ buffer: UnsafeRawBufferPointer, at offset: Int64) throws {
         var done = 0
         while done < buffer.count {
-            let n = pwrite(fd, buffer.baseAddress! + done, buffer.count - done, off_t(offset) + off_t(done))
+            let (n, code) = FileIO.write(fd, from: buffer.baseAddress! + done, count: buffer.count - done, at: offset + Int64(done))
             if n < 0 {
-                if errno == EINTR { continue }
-                throw WriteError.io(operation: "writing", offset: offset + Int64(done), code: errno)
+                if code == EINTR { continue }
+                throw WriteError.io(operation: "writing", offset: offset + Int64(done), code: code)
             }
             if n == 0 { throw WriteError.io(operation: "writing", offset: offset + Int64(done), code: EIO) }
             done += n
@@ -370,10 +373,10 @@ public final class FileDescriptorDevice: BlockDevice {
     public func read(into buffer: UnsafeMutableRawBufferPointer, at offset: Int64) throws {
         var done = 0
         while done < buffer.count {
-            let n = pread(fd, buffer.baseAddress! + done, buffer.count - done, off_t(offset) + off_t(done))
+            let (n, code) = FileIO.read(fd, into: buffer.baseAddress! + done, count: buffer.count - done, at: offset + Int64(done))
             if n < 0 {
-                if errno == EINTR { continue }
-                throw WriteError.io(operation: "reading back", offset: offset + Int64(done), code: errno)
+                if code == EINTR { continue }
+                throw WriteError.io(operation: "reading back", offset: offset + Int64(done), code: code)
             }
             if n == 0 { throw WriteError.io(operation: "reading back", offset: offset + Int64(done), code: EIO) }
             done += n
@@ -381,9 +384,8 @@ public final class FileDescriptorDevice: BlockDevice {
     }
 
     public func synchronize() throws {
-        if fsync(fd) != 0 && errno != ENOTSUP && errno != EINVAL {
-            throw WriteError.io(operation: "finishing", offset: 0, code: errno)
-        }
+        let code = FileIO.flush(fd)
+        if code != 0 { throw WriteError.io(operation: "finishing", offset: 0, code: code) }
         extraSync?(fd)
     }
 }

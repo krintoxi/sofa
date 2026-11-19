@@ -1,4 +1,7 @@
 import Foundation
+#if os(Windows)
+import CRT
+#endif
 
 /// Bytes that can be read anywhere: an image file on this Mac, a file inside an ISO, a part of either. Everything that
 /// reads an ISO, a WIM or a FAT image reads through this, so the tests can hand them plain `Data`.
@@ -30,7 +33,7 @@ extension RandomAccess {
     public func le64(_ at: Int64) throws -> UInt64 { try read(at: at, count: 8).le64(0) }
 }
 
-/// A file read with `pread`: nothing is cached, nothing is mapped.
+/// A file read in place (`pread`, or Windows' own call: `FileIO`): nothing is cached, nothing is mapped.
 public final class FileRandomAccess: RandomAccess {
     public let url: URL
     public let size: Int64
@@ -38,17 +41,16 @@ public final class FileRandomAccess: RandomAccess {
 
     public init(url: URL) throws {
         self.url = url
-        fd = open(url.path, O_RDONLY)
+        fd = FileIO.openFile(url)
         guard fd >= 0 else { throw ReadError.cantOpen(url.path) }
-        var st = stat()
-        guard fstat(fd, &st) == 0 else {
-            close(fd)
+        guard let length = FileIO.size(fd) else {
+            FileIO.closeFile(fd)
             throw ReadError.cantOpen(url.path)
         }
-        size = Int64(st.st_size)
+        size = length
     }
 
-    deinit { close(fd) }
+    deinit { FileIO.closeFile(fd) }
 
     public func read(at offset: Int64, count: Int) throws -> Data {
         guard offset >= 0, count >= 0, offset + Int64(count) <= size else {
@@ -58,10 +60,10 @@ public final class FileRandomAccess: RandomAccess {
         try out.withUnsafeMutableBytes { (buf: UnsafeMutableRawBufferPointer) in
             var done = 0
             while done < count {
-                let n = pread(fd, buf.baseAddress! + done, count - done, off_t(offset) + off_t(done))
+                let (n, code) = FileIO.read(fd, into: buf.baseAddress! + done, count: count - done, at: offset + Int64(done))
                 if n < 0 {
-                    if errno == EINTR { continue }
-                    throw ReadError.io(offset: offset + Int64(done), code: errno)
+                    if code == EINTR { continue }
+                    throw ReadError.io(offset: offset + Int64(done), code: code)
                 }
                 if n == 0 { throw ReadError.pastTheEnd(offset: offset, count: count, size: size) }
                 done += n
@@ -319,7 +321,7 @@ public final class LayoutSource: PackedSource {
     public func cancel() { cancelled = true }
 }
 
-/// A whole file as a stream, one megabyte at a time, read with `pread` (an image written as it is).
+/// A whole file as a stream, one megabyte at a time, read in place (an image written as it is).
 public final class RandomAccessSource: PackedSource {
     private let file: RandomAccess
     private var at: Int64 = 0

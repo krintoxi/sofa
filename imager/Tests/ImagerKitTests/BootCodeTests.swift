@@ -38,11 +38,13 @@ final class BootCodeTests: XCTestCase {
         do {
             #if os(macOS)
             let clang = ("/usr/bin/xcrun", ["clang"])
+            #elseif os(Windows)
+            let clang = (try onPath("clang.exe"), [String]())
             #else
             let clang = ("/usr/bin/env", ["clang"])
             #endif
             try sh(clang.0, clang.1 + ["-c", "-target", "i386-unknown-none-elf",
-                                       Self.boot.appendingPathComponent(name + ".S").path, "-o", out.path])
+                                       native(Self.boot.appendingPathComponent(name + ".S")), "-o", native(out)])
         } catch {
             throw XCTSkip("clang can't assemble for i386 here: \(error)")
         }

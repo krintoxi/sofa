@@ -1,0 +1,3 @@
+# The test files are compared byte for byte and by SHA-256: git must hand them out as they were committed, on Windows
+# too (there it would turn LF into CRLF in the ones it takes for text).
+Tests/ImagerKitTests/Fixtures/** -text

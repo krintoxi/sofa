@@ -30,6 +30,28 @@ func sh(_ path: String, _ args: [String]) throws -> String {
     return text
 }
 
+/// A file's path the way this system's own programs take it (on Windows `C:\...`; elsewhere `path`, as before).
+func native(_ url: URL) -> String {
+    #if os(Windows)
+    return url.withUnsafeFileSystemRepresentation { $0.map { String(cString: $0) } } ?? url.path
+    #else
+    return url.path
+    #endif
+}
+
+#if os(Windows)
+/// Where a program is, looked for in each folder of the search path (there's no `/usr/bin/env` to ask).
+func onPath(_ program: String) throws -> String {
+    let env = ProcessInfo.processInfo.environment
+    let path = env.first { $0.key.uppercased() == "PATH" }?.value ?? ""
+    for folder in path.split(separator: ";") {
+        let candidate = URL(fileURLWithPath: String(folder)).appendingPathComponent(program)
+        if FileManager.default.fileExists(atPath: native(candidate)) { return native(candidate) }
+    }
+    throw NSError(domain: "run", code: 127, userInfo: [NSLocalizedDescriptionKey: "\(program) isn't on the search path"])
+}
+#endif
+
 /// Bytes that look like nothing in particular, the same every time for the same seed.
 func noise(_ count: Int, seed: UInt64) -> Data {
     var x = seed &* 0x9E37_79B9_7F4A_7C15 | 1

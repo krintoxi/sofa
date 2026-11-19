@@ -4,6 +4,9 @@ import CryptoKit
 #endif
 @testable import ImagerKit
 import XCTest
+#if os(Windows)
+import CRT
+#endif
 
 /// The test card inside the fixtures: 2,100,736 bytes (two whole megabytes and seven sectors, so the last write is a
 /// padded part-block). `multiblock.img.xz` is one stream of 9 blocks, made by `xz -T0 -6 --block-size=256KiB` (the
@@ -42,7 +45,7 @@ final class TempDisk {
     init(size: Int64) throws {
         url = FileManager.default.temporaryDirectory.appendingPathComponent("sofa-imager-test-\(UUID().uuidString).img")
         FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 0xEE, count: Int(size)))
-        fd = open(url.path, O_RDWR)
+        fd = FileIO.openFile(url, writing: true)
         self.size = size
         if fd < 0 { throw POSIXError(.ENOENT) }
     }
@@ -50,7 +53,7 @@ final class TempDisk {
     func contents() -> Data { try! Data(contentsOf: url) }
 
     deinit {
-        close(fd)
+        FileIO.closeFile(fd)
         try? FileManager.default.removeItem(at: url)
     }
 }
