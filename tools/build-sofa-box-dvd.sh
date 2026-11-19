@@ -41,10 +41,33 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT INT TERM
+wait_for_parts() {          # wait_for_parts LOOP N…: the loop device's partitions are there before they're used. The
+  # kernel reads the partition table when the device is set up, but skips it if something (udev, looking at the device
+  # this one was a moment ago) holds it just then: "special device /dev/loop2p3 does not exist". So: let udev finish,
+  # and while a partition is missing ask the kernel to read the table again, for up to half a minute.
+  wp_dev="$1"; shift
+  if command -v udevadm >/dev/null 2>&1; then udevadm settle --timeout=10 2>/dev/null || true; fi
+  for wp_n in "$@"; do
+    wp_try=0
+    until [ -b "${wp_dev}p$wp_n" ]; do
+      wp_try=$((wp_try + 1))
+      if [ "$wp_try" -gt 30 ]; then
+        echo "${wp_dev}p$wp_n never appeared (30 tries): the kernel didn't give $wp_dev its partitions. lsblk says:" >&2
+        lsblk "$wp_dev" >&2 2>&1 || true
+        return 1
+      fi
+      [ "$wp_try" = 1 ] && echo "   (${wp_dev}p$wp_n isn't there yet: asking the kernel to read $wp_dev's partitions again)"
+      partx -u "$wp_dev" 2>/dev/null || blockdev --rereadpt "$wp_dev" 2>/dev/null || partprobe "$wp_dev" 2>/dev/null || true
+      if command -v udevadm >/dev/null 2>&1; then udevadm settle --timeout=10 2>/dev/null || true; fi
+      [ -b "${wp_dev}p$wp_n" ] || sleep 1
+    done
+  done
+}
 
 echo "== The system: $(basename "$IMG")'s root, as it is"
 mkdir -p "$ROOT" "$LIVE" "$WORK/up" "$WORK/wk" "$ISO/live" "$ISO/.disk" "$ISO/boot/grub/i386-pc" "$ISO/EFI/boot" "$WORK/efi"
 LOOP="$(losetup -rfP --show "$IMG")"
+wait_for_parts "$LOOP" 3
 mount -o ro "${LOOP}p3" "$ROOT"
 VER="$(tr -d ' \n' < "$ROOT/usr/local/lib/sofa-box/VERSION")"
 KVER="$(ls "$ROOT/lib/modules" | sort -V | tail -n 1)"
