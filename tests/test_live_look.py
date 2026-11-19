@@ -344,30 +344,39 @@ class InABrowser(unittest.TestCase):
 class StandingBy(InABrowser):
     """The page's own player, on a TV's browser: the same channel from another list is tried before giving up."""
 
-    def tune(self, name):
-        self.page.value("[...document.querySelectorAll('#dRows [data-live]')].find(b => b.querySelector('.d-name').textContent === %s).click()" % json.dumps(name))
+    def wire(self):
+        """The row of the channel two lists carry (wire.xx): the one it plays from first, and the one standing by. Two
+        rows are called Wire, and which list comes first goes by the lists' addresses, so the row is found by channel."""
+        pair = {cid("a3"): "/a3/index.m3u8", cid("b3"): "/b3/index.m3u8"}
+        shown = [i for i in self.page.value("[...document.querySelectorAll('#dRows [data-live]')].map(b => b.dataset.live)") if i in pair]
+        self.assertEqual(len(shown), 1)                                           # (one row for the two)
+        return shown[0], pair.pop(shown[0]), list(pair.values())[0]
+
+    def tune(self, row):
+        self.page.value("document.querySelector('#dRows [data-live=\"%s\"]').click()" % row)
 
     def test_when_a_channel_doesnt_play_the_same_one_from_another_list_does(self):
         lists()
-        Air.gone.add("/a3/index.m3u8")
         p = self.open("look-plain", "#/live")
-        self.tune("Wire")                                                         # (the first of the two rows: wire.xx, in two lists)
+        row, first, spare = self.wire()
+        Air.gone.add(first)
+        self.tune(row)
         end = time.time() + 15
-        while time.time() < end and "/b3/index.m3u8" not in Air.seen:
+        while time.time() < end and spare not in Air.seen:
             time.sleep(0.1)
-        asked = [x for x in Air.seen if x in ("/a3/index.m3u8", "/b3/index.m3u8")]
-        self.assertEqual((asked[0], asked[-1]), ("/a3/index.m3u8", "/b3/index.m3u8"))   # (the player asks a second time before it gives up on one)
-        self.assertEqual(sorted(asked), asked)
+        asked = [x for x in Air.seen if x in (first, spare)]
+        self.assertEqual((asked[0], asked[-1]), (first, spare))                   # (the player asks a second time before it gives up on one)
+        self.assertEqual(asked.index(spare), asked.count(first))                  # (the first, then the other: never back)
         time.sleep(1.5)
         self.assertTrue(p.value("document.querySelector('.p-error').hidden"))
         self.assertIn("Wire", p.value("document.querySelector('.p-show').textContent"))
-        self.assertTrue(live.down(cid("a3")))                                     # (and the one that didn't is left out from now on)
+        self.assertTrue(live.down(row))                                           # (and the one that didn't is left out from now on)
 
     def test_when_neither_plays_it_says_so_after_trying_each_once(self):
         lists()
         Air.gone.update({"/a3/index.m3u8", "/b3/index.m3u8"})
         p = self.open("look-plain", "#/live")
-        self.tune("Wire")
+        self.tune(self.wire()[0])
         self.until("!document.querySelector('.p-error').hidden", 20)
         self.assertIn("isn't available right now", p.value("document.querySelector('.p-error').textContent"))
         time.sleep(1)
