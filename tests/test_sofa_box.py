@@ -1442,7 +1442,7 @@ class BoxBrowser(unittest.TestCase):
         held = json.loads(js("JSON.stringify([HG.stream.list.length, HG.W.lots.n, HG.units.length, document.querySelectorAll('#view > :not(canvas):not(.hidden)').length])"))
         self.assertLess(held[0], 130)                                     # the streets round the car, never the city
         self.assertEqual(held[2:], [1, 0])                                # (nothing of the page lies over the drive)
-        self.assertGreater(js("HG.hud"), 20)                              # its speed and its map are in the picture
+        self.assertTrue(until("HG.hud > 20", 15))                         # its speed and its map are in the picture (once a frame of the drive has drawn them: a slow machine takes a moment)
         js("(() => { const s = HG.W.events[3].start; HG.goto(s.x, s.z, s.yaw); HG.sim(0.2); return 1; })()")
         self.assertEqual(js("HG.near"), 3)                                # stood in a race's mark
         js("HG.press('a'); 1")                         # A: race
