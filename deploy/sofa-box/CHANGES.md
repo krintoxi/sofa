@@ -8,6 +8,32 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.98
+
+**The 3D camera turns two ways, and both have weight.**
+
+- **What was wrong.** WYRD's view turned at full speed from the first frame and stopped dead when the stick or key was
+  let go; a sideways push with a little up in it lowered the eye as it turned (half the way from the middle eye to the
+  high one in a second); the view never came round by itself, so with the lower eyes you walked out of the side of
+  the picture or towards yourself; a mouse did nothing but the wheel, which jumped the height; and nothing brought the
+  eye in when ground stood between it and the delver.
+- **The engine's camera has two ways round** (Low3D's `Follow`, its `mode`). **Action**: the eye sits behind you. Turn
+  it and it stays a moment, then eases round behind the way you walk; hold a button and it's free look. **Orbit**: the
+  eye circles you and stays where you leave it; it never moves by itself. In both, turning runs up to speed and back
+  down, small pushes turn finely, a stick's play does nothing, and it's the same turn at 30 frames a second as at 60.
+  A mouse dragged with a button held looks round, the wheel brings the eye nearer or farther, and rising ground or a
+  wall between pulls the eye in. The way it was is still there (`"fixed"`) and is what a game gets unless it asks.
+- **WYRD** starts with Action and has both in Options (**Camera turns**: Behind you as you walk, or Only when you
+  turn it). The right stick turns and tilts as before; RT held is free look (RB still drinks); Z and C turn, V steps
+  the height; on a touch screen the right thumb's drag turns it. With Orbit, the arrow keys turn and tilt the view and
+  W A S D walk. The wheel now zooms (it stepped the height). In the 2D look the eye is where it always was.
+- **Tidewing and Ironmaw are as they were**: a skimmer wants the chase camera it has, and Ironmaw is first person
+  with its own curve and mouse look.
+- **The maker's setup** has both in its camera question (follow, action; follow, orbit; follow, plain), says what a
+  game writes for each, and starts a 3D action-RPG and an open world on action.
+- **Not yet** tried with a real controller or on a real Pi. Houses and trees don't pull WYRD's eye in: they are cut
+  away near the eye as before.
+
 ## 1.1.97
 
 **The Games page: every game a real card.** The owner's word for it was "meh".

@@ -583,9 +583,36 @@ first).
   `eyes` (rows of `[up, back, aim up, aim ahead, fov, near]` from the feet, highest first; `near`: what's nearer the eye
   is cut away, so a tree beside it can't fill the view) and round it: `steer(dt, x, y)` from a stick (the right one,
   `SofaPad.stick2()`), `to(h)` to glide to a height, `follow(cam, x, y, z, dt, ground)` each frame (`ground(x, z)` keeps
-  a lower eye over a rise), `move(x, z)` a push on the screen as a way on the ground (up: away from the eye). WYRD's eye
-  is one: high as it always was, a middle one, and a low one with the sky ahead, on the right stick, Z, C, V and the
-  wheel, and in its options. Pass `cam.near` to `begin()`. A game drawn in 2D keeps one eye: its sprites are baked for it.
+  a lower eye over a rise), `move(x, z)` a push on the screen as a way on the ground (up: away from the eye). Pass
+  `cam.near` to `begin()`. A game drawn in 2D keeps one eye: its sprites are baked for it.
+  How it goes round is its `mode` (in the options, or `set(mode)` later):
+  - `"fixed"` (when none is given): the push is the turning speed, at once, and nothing else moves the eye. As it
+    always was.
+  - `"orbit"`: the eye circles the one followed and stays where it's left. It never swings by itself. For a game
+    played with keys and a mouse as much as a controller, or one where the player wants to study the place.
+  - `"action"`: the eye sits behind. Turned by hand it stays for a moment (`rest`, 0.8 s), then, while the one
+    followed walks, eases round behind the way they head: call `heading(yaw, speed)` each frame with that way and how
+    fast (0 to 1). Quickest when the way is across the view, not at all when it's straight at the eye. `hold(true)`
+    while a button is down is free look: nothing eases back until it's let go. `behind(yaw)` puts it there at once
+    (a new place). For a game made for a controller, where the right thumb is busy with buttons.
+
+  In orbit and action the turning has weight. A push is cleared of the stick's play (`dead`, 0.1, off the whole push,
+  and some of each axis off the other, so a sideways push with a little up in it doesn't lift the eye), curved
+  (`curve`, 1.4: small pushes finer), and the turning speed runs up to it and back down by time (`accel`, 14 a second),
+  worked out exactly for the frame's length: the same turn at 30 frames a second as at 60. Keys go through `steer()`
+  too (a push of 1), so they start and stop the same way. `look(dx, dy)` turns by an amount instead: radians round,
+  and of the way between the eyes. `zoom(d)` brings the eye nearer or farther along its own line, a step of an eighth
+  at a time within `zooms` (`[0.6, 1.5]`), eased. `mouse(ok)`, called once, listens for a mouse: dragged with a button
+  held it looks round (and holds an action eye where it's put), the wheel zooms; `ok()` says when (not in a menu). A
+  finger is left to the touch controls, whose `look: true` is the right stick, so touch needs nothing more.
+  The eye is pulled in along its line when something is between it and the one followed: the `ground` given to
+  `follow()`, or `blocked(x, y, z)` in the options (true inside a wall). In at once, out again slowly, and `near` comes
+  in with it so the one followed is never cut away. Six points of the line are tried each frame, and three more to
+  place the eye when one is shut. After `follow()`, `eye[0]`, `eye[1]` and `eye[5]` are the eye as pulled and zoomed
+  and `k` is how much (1: not at all), for a game that sets its air or its far edge from the eye's distance.
+  Which to use: action for a game on foot played from the sofa, orbit as the choice beside it; give the player both in
+  the game's options, as WYRD does. `chase()` stays the one for anything driven, and neither is for first person.
+  None of this draws: the renderers get the same camera fields as before.
   `begin(E, cam, near, far, rect)` draws a frame from a camera in whichever renderer the box has. Two players:
   a camera each and a rect each (the screen's top half and bottom half), and the game draws its world twice.
 

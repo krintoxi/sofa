@@ -882,6 +882,87 @@ class TheEngine(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_camera_goes_round_two_ways(self):
+        """Follow's orbit and action modes. Turning has weight: nothing inside a stick's play, a start that runs up and
+        a stop that runs down, and the same turn at 30 frames a second as at 60 (and at 20). A sideways push with a
+        little up in it doesn't lift the eye. Orbit never moves by itself; action comes round behind the way walked
+        after a rest, not while held for free look, and not when walked straight at. A drag turns by an amount; the
+        wheel's zoom is eased and kept within its ends; rising ground or a wall between pulls the eye in (near with it)
+        and lets it out slowly. Fixed is as it was, and a frame makes nothing."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, out = {}, r = v => Math.round(v * 1000) / 1000 + 0;
+const eyes = [[13.9, 9.3, 0.9, 1.2, 0.66, 0.5], [7, 11, 1.4, 7, 0.72, 8.5], [5.2, 9.5, 1.5, 6, 0.74, 7]];
+const make = (mode, o) => new L.Follow(Object.assign({ eyes, mode, h: 0.5 }, o)), cam = L.camera();
+// a push held for a second and let go for half of one, at a frame rate
+const run = (mode, fps, x, y) => { const f = make(mode), dt = 1 / fps; let first = 0;
+  for (let i = 0; i < fps; i++) { f.steer(dt, x, y); f.follow(cam, 0, 0, 0, dt); if (!i) first = f.turn; }
+  const held = f.turn; for (let i = 0; i < fps / 2; i++) { f.steer(dt, 0, 0); f.follow(cam, 0, 0, 0, dt); }
+  return { first, held, rest: f.turn, h: f.h, tv: f.tv }; };
+for (const mode of ["orbit", "action"]) {
+  const a = run(mode, 60, 1, 0), b = run(mode, 30, 1, 0), c = run(mode, 20, 1, 0);
+  out[mode] = { held: r(a.held), same: Math.abs(a.held - b.held) < 1e-6 && Math.abs(a.rest - b.rest) < 1e-6 && Math.abs(a.rest - c.rest) < 1e-6,
+    slowStart: Math.abs(a.first) < 2.4 / 60 / 4, coasts: r(a.rest - a.held), stopped: Math.abs(a.tv) < 0.01,
+    play: run(mode, 60, 0.09, 0).held, half: r(run(mode, 60, 0.55, 0).held), lifted: r(run(mode, 60, 0.9, 0.25).h), up: r(run(mode, 60, 0, -1).h) };
+}
+// walking east (yaw 90°) for five seconds: orbit stays; action comes round behind (the eye to the west: a turn of -90°)
+const walk = (mode, yaw, secs, o) => { const f = make(mode); if (o && o.hold) f.hold(true); if (o && o.steered) { f.steer(1 / 60, 1, 0); }
+  for (let i = 0; i < secs * 60; i++) { f.heading(yaw, 1); f.follow(cam, 0, 0, 0, 1 / 60); } return r(f.turn); };
+out.walk = { orbit: walk("orbit", Math.PI / 2, 5), action: walk("action", Math.PI / 2, 5), early: walk("action", Math.PI / 2, 0.5, { steered: true }) < 0.01,
+  free: walk("action", Math.PI / 2, 5, { hold: true }), atEye: walk("action", 0, 5), fps30: (() => { const f = make("action"); for (let i = 0; i < 150; i++) { f.heading(Math.PI / 2, 1); f.follow(cam, 0, 0, 0, 1 / 30); } return Math.abs(f.turn - walk("action", Math.PI / 2, 5)) < 0.02; })() };
+{ const f = make("action"); f.behind(Math.PI / 2); out.behind = r(L.U.wrap(f.turn)); }
+// a drag, the wheel
+{ const f = make("orbit"); f.look(0.5, 0.1); out.look = [r(f.turn), r(f.h)];
+  for (let i = 0; i < 40; i++) f.zoom(1); f.follow(cam, 0, 0, 0, 1 / 60); const soon = f.k; for (let i = 0; i < 120; i++) f.follow(cam, 0, 0, 0, 1 / 60);
+  out.zoom = [soon > 1 && soon < 1.2, r(f.k), r(Math.hypot(cam.x, cam.z)), r(cam.near)]; for (let i = 0; i < 40; i++) f.zoom(-1); for (let i = 0; i < 120; i++) f.follow(cam, 0, 0, 0, 1 / 60); out.zoomIn = [r(f.k), r(cam.near) < 6.9, r(cam.near) >= 0.5]; }
+// a wall four metres behind, then gone; a bank of ground the same
+{ const f = make("orbit", { blocked: (x, y, z) => wall && z > 4 }); let wall = true;
+  for (let i = 0; i < 60; i++) f.follow(cam, 0, 0, 0, 1 / 60); out.wall = [cam.z < 4, cam.z > 3, r(cam.near) < 8.5 * 0.4, f.k < 0.4];
+  wall = false; f.follow(cam, 0, 0, 0, 1 / 60); const one = cam.z; for (let i = 0; i < 300; i++) f.follow(cam, 0, 0, 0, 1 / 60); out.wallGone = [one < 4.5, r(cam.z)];
+  const g = make("orbit"), bank = (x, z) => z > 5 ? 20 : 0; for (let i = 0; i < 60; i++) g.follow(cam, 0, 0, 0, 1 / 60, bank); out.bank = [cam.z < 5, cam.z > 3.5, cam.y > 0.6]; }
+// fixed: as it was, whatever else is asked of it
+{ const f = new L.Follow({ eyes }); f.steer(1, 1, 0); f.heading(1, 1); f.zoom(1); f.follow(cam, 0, 0, 0, 0.016, null); out.fixed = [r(f.turn), r(cam.y), f.k]; f.set("orbit"); out.set = f.mode; }
+// nothing made: frames steered and walked once the script engine has settled, counted against the fixed way's
+// (whose frame makes nothing: what's left is the counting's own)
+{ const ground = () => 0, wall = () => false, way = [0, 0], per = mode => { const f = make(mode, { blocked: wall });
+    const go = n => { for (let i = 0; i < n; i++) { f.steer(1 / 60, 0.5, 0.2); f.heading(1, 1); f.follow(cam, i * 0.1, 0, 0, 1 / 60, ground); f.move(1, 0, way); } };
+    go(150000); gc(); const m0 = process.memoryUsage().heapUsed; go(20000); return (process.memoryUsage().heapUsed - m0) / 20000; };
+  per("action"); const fixed = per("fixed"); out.made = [per("orbit") - fixed < 8, per("action") - fixed < 8]; }
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "--expose-gc", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        for mode in ("orbit", "action"):
+            m = out[mode]
+            self.assertTrue(m["same"], mode)                                           # (30, 60 and 20 frames a second: one turn)
+            self.assertTrue(m["slowStart"] and m["stopped"], mode)
+            self.assertLess(m["held"], -2.1); self.assertGreater(m["held"], -2.4)      # (a second pushed right: 2.4 less the run-up)
+            self.assertLess(m["coasts"], 0); self.assertGreater(m["coasts"], -0.25)    # (and it runs on a little, then stops)
+            self.assertEqual(m["play"], 0)                                             # (inside the stick's play: nothing)
+            self.assertLess(m["half"], -0.5); self.assertGreater(m["half"], -1.2)      # (half a push: well under half the speed)
+            self.assertEqual(m["lifted"], 0.5)                                         # (sideways with a little up: no lift)
+            self.assertGreater(m["up"], 0.9)                                           # (straight up: lower, as ever)
+        w = out["walk"]
+        self.assertEqual(w["orbit"], 0)                                                # (orbit: never by itself)
+        self.assertLess(w["action"], -1.2); self.assertGreater(w["action"], -1.58)    # (action: most of the way behind in 5 s)
+        self.assertTrue(w["early"] and w["fps30"])                                     # (not inside the rest after a turn by hand)
+        self.assertEqual((w["free"], w["atEye"]), (0, 0))                              # (free look held; walking at the eye)
+        self.assertEqual(out["behind"], -1.571)
+        self.assertEqual(out["look"], [-0.5, 0.4])
+        self.assertEqual(out["zoom"][:2], [True, 1.5]); self.assertEqual(out["zoom"][2:], [15.99, 6.9])   # (farther: near stays)
+        self.assertEqual(out["zoomIn"], [0.6, True, True])
+        self.assertEqual(out["wall"], [True, True, True, True])
+        self.assertTrue(out["wallGone"][0]); self.assertEqual(out["wallGone"][1], 11)  # (out again slowly, to where it was)
+        self.assertEqual(out["bank"], [True, True, True])
+        self.assertEqual(out["fixed"], [-2.4, 13.9, 1]); self.assertEqual(out["set"], "orbit")
+        self.assertEqual(out["made"], [True, True])                                     # (bytes a frame over the fixed way's: none)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_a_camera_the_player_moves(self):
         """Low3D's Follow: at its first eye and no turn it stands where it's told; turned, the eye goes round and a push
         up on the screen goes away from it; a stick lowers and turns it; to() glides there; a rise behind lifts a lower

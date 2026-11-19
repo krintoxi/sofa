@@ -3084,10 +3084,36 @@ function orbit(cam, cx, cz, radius, height, angle, tx, tz) {
 // to a height; follow(cam, x, y, z, dt, ground): cam set from the thing's feet (fov and near too; ground(x, z), when
 // given, keeps a lower eye 1.4 over a rise behind); move(x, z, out): a push on the screen as a way on the ground, [x, z]
 // (up: away from the eye, however far it's turned). Nothing made as it runs.
+//
+// How it goes round is its mode (o.mode, or set(mode) later):
+//   "fixed"   as above and as it always was: the push is the turning speed, at once, and nothing else moves the eye.
+//   "orbit"   the eye circles the thing and stays where it's left: it never swings by itself.
+//   "action"  the eye sits behind the thing: turned by hand it stays a moment (rest), then, while the thing walks, it
+//             eases round behind the way it's heading (heading(yaw, speed) each frame says which way and how fast,
+//             0 … 1; back, 0.6: how quickly, gently on purpose: a push is a way from the eye, so a sideways walk bends into a
+//             wide circle as the eye comes round, and a quicker eye makes it a tight one). Walking straight at the eye
+//             doesn't swing it. hold(true) (a button held, or the mouse) is free
+//             look: nothing eases back until it's let go.
+// In orbit and action the turning has weight: a push is first cleared of a stick's play (dead, 0.1, taken off the
+// whole push, and a little of one axis off the other: a sideways push with some up in it doesn't lift the eye), then
+// curved (curve, 1.4: small pushes finer), and the turning speed runs up to it and back down by time (accel, 14 a
+// second), worked out exactly for the frame's length, so it's the same turn at 30 frames a second as at 60. look(dx,
+// dy) turns it by an amount instead (radians round; of the way between the eyes): a mouse or a finger dragged.
+// zoom(d) brings the eye nearer or farther along its own line (steps of an eighth, within zooms, [0.6, 1.5], eased).
+// And the eye is pulled in along its line when something is between it and the thing: ground (the ground given to
+// follow()) or o.blocked(x, y, z) → true inside a wall; in at once, out again slowly. near comes in with it, so the
+// thing itself is never cut away. eye[0], eye[1] and eye[5] are the eye as pulled and zoomed, and k how much (1: not).
+// mouse(ok) listens for a mouse on the page (none for a finger: the touch controls are the right stick): dragged with
+// a button held it looks round, the wheel zooms; ok() says when (not in a menu). Nothing made as it runs.
+const FOLLOW_STEPS = 6;
 function Follow(o) {
   o = o || {}; this.eyes = o.eyes || [[13, 10, 1, 1, 0.66, 0.5]]; this.h = U.clamp(o.h || 0, 0, 1); this.turn = o.turn || 0; this.goal = null;
   this.ease = o.ease || 8; this.snap = o.snap || 12; this.turnRate = o.turnRate || 2.4; this.liftRate = o.liftRate || 0.9; this.glide = o.glide || 2.5;
   this.eye = new Float32Array(6); this.fx = null; this.fy = 0; this.fz = 0;
+  this.mode = o.mode || "fixed"; this.dead = o.dead == null ? 0.1 : o.dead; this.curve = o.curve || 1.4; this.accel = o.accel || 14;
+  this.rest = o.rest == null ? 0.8 : o.rest; this.back = o.back || 0.6; this.zooms = o.zooms || [0.6, 1.5]; this.blocked = o.blocked || null;
+  this.px = 0; this.py = 0; this.tv = 0; this.lv = 0; this.idle = 99; this.free = false; this.drag = false; this.hy = 0; this.go = 0;
+  this.zoomTo = 1; this.zoomNow = 1; this.pull = 1; this.k = 1;
 }
 Follow.prototype = {
   at(h) {
@@ -3097,24 +3123,95 @@ Follow.prototype = {
     for (let j = 0; j < 6; j++) e[j] = a[j] + (b[j] - a[j]) * f;
     return e;
   },
+  set(mode) { this.mode = mode; this.tv = this.lv = this.px = this.py = 0; this.idle = 99; this.free = this.drag = false; if (mode === "fixed") { this.zoomTo = this.zoomNow = this.pull = this.k = 1; } return this; },
   steer(dt, x, y) {
-    if (x) this.turn = (this.turn - x * this.turnRate * dt) % TAU;
-    if (y) { this.h = U.clamp(this.h - y * this.liftRate * dt, 0, 1); this.goal = null; }
+    if (this.mode === "fixed") {
+      if (x) this.turn = (this.turn - x * this.turnRate * dt) % TAU;
+      if (y) { this.h = U.clamp(this.h - y * this.liftRate * dt, 0, 1); this.goal = null; }
+      return;
+    }
+    const d = this.dead, ax = Math.abs(x), ay = Math.abs(y);
+    let qx = Math.max(0, ax - d - ay * 0.35), qy = Math.max(0, ay - d - ax * 0.35);
+    qx = Math.pow(Math.min(1, qx / (1 - d)), this.curve); qy = Math.pow(Math.min(1, qy / (1 - d)), this.curve);
+    this.px = x < 0 ? -qx : qx; this.py = y < 0 ? -qy : qy;      // (the push, kept for follow(): it runs the speeds up to it)
   },
+  look(dx, dy) {
+    if (dx) this.turn = (this.turn - dx) % TAU;
+    if (dy) { this.h = U.clamp(this.h - dy, 0, 1); this.goal = null; }
+    this.idle = 0;
+  },
+  zoom(d) { this.zoomTo = U.clamp(this.zoomTo * (d > 0 ? 1.125 : 1 / 1.125), this.zooms[0], this.zooms[1]); },
+  hold(on) { this.free = !!on; },
+  heading(yaw, speed) { this.hy = yaw; this.go = speed > 1 ? 1 : speed > 0 ? speed : 0; },
+  behind(yaw) { this.turn = (yaw + Math.PI) % TAU; this.tv = 0; this.idle = 99; return this; },
   to(h) { this.goal = U.clamp(h, 0, 1); },
   follow(cam, x, y, z, dt, ground) {
     dt = dt || 0.016;
+    const live = this.mode !== "fixed";
+    if (live) {
+      // the turning and lifting speeds run up to the push by time: exactly, for a push held through the frame
+      const f = Math.exp(-this.accel * dt), wt = -this.px * this.turnRate, wl = -this.py * this.liftRate, g = (1 - f) / this.accel;
+      const dturn = wt * dt + (this.tv - wt) * g, dl = wl * dt + (this.lv - wl) * g;
+      this.tv = wt + (this.tv - wt) * f; this.lv = wl + (this.lv - wl) * f;
+      if (this.px || this.py || this.free || this.drag) this.idle = 0; else this.idle += dt;
+      if (Math.abs(this.tv) < 1e-4 && !wt) this.tv = 0; else this.turn = (this.turn + dturn) % TAU;
+      if (Math.abs(this.lv) < 1e-4 && !wl) this.lv = 0; else { this.h = U.clamp(this.h + dl, 0, 1); if (this.py) this.goal = null; if (this.h <= 0 || this.h >= 1) this.lv = 0; }
+      this.px = this.py = 0;                           // (a push lasts the frame it was given in)
+      if (this.mode === "action" && this.go > 0.05 && this.idle > this.rest) {
+        // round behind the way it's heading: quickest when that's across the view, not at all straight at the eye
+        const off = Math.sin(this.hy + Math.PI - this.turn), into = U.clamp((this.idle - this.rest) * 2, 0, 1);
+        this.turn = (this.turn + off * (1 - Math.exp(-this.back * this.go * into * dt))) % TAU;
+      }
+      this.zoomNow += (this.zoomTo - this.zoomNow) * (1 - Math.exp(-10 * dt));
+      if (Math.abs(this.zoomTo - this.zoomNow) < 0.002) this.zoomNow = this.zoomTo;
+    }
     if (this.goal != null) { const d = this.goal - this.h; this.h += U.clamp(d, -this.glide * dt, this.glide * dt); if (Math.abs(d) < 0.002) { this.h = this.goal; this.goal = null; } }
     if (this.fx == null || Math.abs(this.fx - x) > this.snap || Math.abs(this.fz - z) > this.snap) { this.fx = x; this.fy = y; this.fz = z; }
     else { const k = 1 - Math.exp(-this.ease * dt); this.fx += (x - this.fx) * k; this.fy += (y - this.fy) * k; this.fz += (z - this.fz) * k; }
     const e = this.at(this.h), bx = Math.sin(this.turn), bz = Math.cos(this.turn);
+    if (live) {
+      // is anything between the thing's chest and the eye? walked out along the line: the eye stops short of it
+      const cy = 1.2, up = e[0] - cy, back = e[1] * this.zoomNow, rise = up * this.zoomNow;
+      let clear = 1;
+      for (let i = 1; i <= FOLLOW_STEPS; i++) {
+        const t = i / FOLLOW_STEPS;
+        if (!this.shut(ground, bx, bz, back, cy, rise, t)) continue;
+        let lo = (i - 1) / FOLLOW_STEPS, hi = t;         // (and where between the last clear step and this one: halved three times)
+        for (let j = 0; j < 3; j++) { const m = (lo + hi) / 2; if (this.shut(ground, bx, bz, back, cy, rise, m)) hi = m; else lo = m; }
+        clear = Math.max(0.2, lo); break;
+      }
+      this.pull += (clear - this.pull) * (clear < this.pull ? 1 - Math.exp(-22 * dt) : 1 - Math.exp(-2.5 * dt));
+      if (clear === 1 && this.pull > 0.998) this.pull = 1;   // (all the way out: exactly, so k is 1 again)
+      const k = this.k = this.zoomNow * this.pull;
+      e[0] = cy + up * k; e[1] = e[1] * k; e[5] = Math.max(0.5, e[5] * Math.min(1, k));
+    }
     cam.tx = this.fx - bx * e[3]; cam.tz = this.fz - bz * e[3]; cam.ty = this.fy + e[2];
     cam.x = this.fx + bx * e[1]; cam.z = this.fz + bz * e[1]; cam.y = this.fy + e[0];
-    if (ground && this.h > 0) cam.y = Math.max(cam.y, ground(cam.x, cam.z) + 1.4);
+    if (ground && (this.h > 0 || live)) cam.y = Math.max(cam.y, ground(cam.x, cam.z) + (live ? 0.6 : 1.4));
     cam.fov = e[4]; cam.near = e[5]; cam.roll = 0; cam.yaw = Math.PI + this.turn;
     return cam;
   },
-  move(x, z, out) { const c = Math.cos(this.turn), s = Math.sin(this.turn); out = out || [0, 0]; out[0] = x * c + z * s; out[1] = -x * s + z * c; return out; }
+  shut(ground, bx, bz, back, cy, rise, t) {            // (is the line's point t of the way out under the ground or in a wall?)
+    const sx = this.fx + bx * back * t, sz = this.fz + bz * back * t, sy = this.fy + cy + rise * t;
+    return (ground && sy < ground(sx, sz) + 0.35) || (this.blocked && this.blocked(sx, sy, sz)) || false;
+  },
+  move(x, z, out) { const c = Math.cos(this.turn), s = Math.sin(this.turn); out = out || [0, 0]; out[0] = x * c + z * s; out[1] = -x * s + z * c; return out; },
+  mouse(ok) {
+    if (this.moused) return this; this.moused = true;
+    let lx = 0, ly = 0;
+    const on = () => this.mode !== "fixed" && (!ok || ok()), up = e => { if (e.pointerType === "touch") return; this.drag = false; };
+    addEventListener("pointerdown", e => { if (e.pointerType === "touch" || !on()) return; this.drag = true; lx = e.clientX; ly = e.clientY; });
+    addEventListener("pointermove", e => {
+      if (!this.drag || e.pointerType === "touch") return;
+      if (!e.buttons || !on()) { this.drag = false; return; }
+      const span = Math.max(320, innerHeight);          // (the picture's height dragged across: most of the way round)
+      this.look((e.clientX - lx) / span * 3.5, (e.clientY - ly) / span * 1.6); lx = e.clientX; ly = e.clientY;
+    });
+    addEventListener("pointerup", up); addEventListener("pointercancel", up); addEventListener("blur", () => { this.drag = false; });
+    addEventListener("wheel", e => { if (e.deltaY && on()) this.zoom(e.deltaY); }, { passive: true });
+    addEventListener("contextmenu", e => { if (on()) e.preventDefault(); });
+    return this;
+  }
 };
 // draw a frame of either renderer from a camera (GL: begin() with the same view the 2D one gets)
 function viewOf(cam) {

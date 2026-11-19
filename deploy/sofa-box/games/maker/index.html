@@ -561,10 +561,10 @@ Maker.start = () => { fillSources(); status(); useBox(location.hash.slice(1)); }
 "use strict";
 const T = window.MakerText, M = window.Maker, root = document.getElementById("screen-setup"), $ = s => root.querySelector(s);
 const TYPES = [
-  { id: "rpg3d", cam: "follow", name: "3D action-RPG", like: "WYRD", dim: 3 },
+  { id: "rpg3d", cam: "follow-action", name: "3D action-RPG", like: "WYRD", dim: 3 },
   { id: "fps", cam: "first", name: "First-person shooter", like: "Ironmaw", dim: "ray" },
   { id: "racer", cam: "chase", name: "Racer", like: "Tidewing", dim: 3 },
-  { id: "open", cam: "follow", name: "Open world 3D", like: "Tidewing's islands, bigger", dim: 3 },
+  { id: "open", cam: "follow-action", name: "Open world 3D", like: "Tidewing's islands, bigger", dim: 3 },
   { id: "platformer", cam: "flat", name: "2D platformer", like: "Cinder Knight", dim: 2 },
   { id: "rpg2d", cam: "flat", name: "Top-down RPG", like: "a map of tiles", dim: 2 },
   { id: "brawler", cam: "flat", name: "Beat 'em up", like: "Neon Brawler", dim: 2 },
@@ -587,10 +587,15 @@ const TIERS = [
 const FPS = [{ id: 60, name: "60" }, { id: 30, name: "steady 30" }];
 const TARGETS = [{ id: "web", name: "web page", needs: "nothing: one offline page" }, { id: "box", name: "Sofa Box", needs: "a pull request adding it to games/games.json, with its Home art" }];
 const CAMS = [
-  { id: "top", name: "top-down", like: "fixed, from above" }, { id: "follow", name: "follow, with heights", like: "WYRD" },
+  { id: "top", name: "top-down", like: "fixed, from above" }, { id: "follow-action", name: "follow, action", like: "WYRD: behind you as you walk" },
+  { id: "follow-orbit", name: "follow, orbit", like: "stays where you leave it" }, { id: "follow", name: "follow, plain", like: "turned by hand, no weight" },
   { id: "chase", name: "chase", like: "Tidewing" }, { id: "orbit", name: "orbit", like: "round a point" },
   { id: "first", name: "first person", like: "Ironmaw" }, { id: "flat", name: "2D: the screen scrolls", like: "Cinder Knight" }
 ];
+const CAMHOW = {                                      // (what a game does to take the way up: Low3D's Follow and its modes)
+  "follow-action": " In the game: new L3.Follow({ eyes, mode: \"action\" }); each frame steer() from the right stick, heading() with the way the player walks, hold() while a button for free look is down; mouse() once for a mouse.",
+  "follow-orbit": " In the game: new L3.Follow({ eyes, mode: \"orbit\" }); each frame steer() from the right stick and from keys of its own (it never moves by itself); mouse() once for a mouse."
+};
 const camOK = (t, id) => !CAMS.some(c => c.id === id) || (t.dim === 2 ? id === "flat" : t.dim === "ray" ? id === "first" : t.dim === 2.5 ? id === "orbit" || id === "flat" : id !== "flat");
 const LANGS = [{ id: "en", name: "English", s: "latin" }, { id: "es", name: "Spanish", s: "latin" }, { id: "pt", name: "Portuguese", s: "latin" }, { id: "fr", name: "French", s: "latin" },
   { id: "de", name: "German", s: "latin" }, { id: "ru", name: "Russian", s: "cyrillic" }, { id: "zh", name: "Chinese", s: "cjk" }, { id: "ja", name: "Japanese", s: "cjk" },
@@ -598,7 +603,7 @@ const LANGS = [{ id: "en", name: "English", s: "latin" }, { id: "es", name: "Spa
 const SCRIPTS = { latin: "Latin: the 5×7 font has capitals and digits; lower case and accents still to draw", cyrillic: "Cyrillic, still to draw",
   cjk: "Chinese and Japanese characters: thousands, still to draw", hangul: "Korean syllables, built from 24 letters, still to draw",
   arabic: "Arabic: right to left, letters joined, still to draw", deva: "Devanagari: letters joined above a line, still to draw" };
-const pick = { type: "rpg3d", look: "flat", players: 1, fps: 60, floor: "pi3", ceiling: "pi5", camera: "follow",
+const pick = { type: "rpg3d", look: "flat", players: 1, fps: 60, floor: "pi3", ceiling: "pi5", camera: "follow-action",
   controls: new Set(["pad", "keys", "touch"]), targets: new Set(["web", "box"]), languages: new Set(["en", "es"]) };
 let extra = {}, cameraExtra = {};
 const MULTI = { controls: 1, targets: 1, languages: 1 };
@@ -646,7 +651,7 @@ function render() {
   group("camera", own("camera", CAMS).map(c => camOK(t, c.id) ? c : Object.assign({}, c, { off: true, why: "not for this kind of game" })));
   $("#o-rt").textContent = kind(t) === "2d" ? "the web runtime: Low3D, and Low2D on top of it" : "the web runtime: Low3D";
   $("#o-start").textContent = kind(t) === "2d" ? "the 2D starting page: an empty stage on Low2D and a block you move" : "the 3D starting page: an empty scene on Low3D and a block you move";
-  $("#o-cam").textContent = own("camera", CAMS).find(c => c.id === pick.camera).name + ". Written into the camera block; the starting page keeps its camera behind the player until the game takes the block up.";
+  $("#o-cam").textContent = own("camera", CAMS).find(c => c.id === pick.camera).name + ". Written into the camera block; the starting page keeps its camera behind the player until the game takes the block up." + (CAMHOW[pick.camera] || "");
   const lad = $("#o-lad"); lad.textContent = "";
   for (let i = idx(pick.floor); i <= Math.max(idx(pick.floor), idx(pick.ceiling)); i++) {
     const r = TI[i], row = document.createElement("div"), B = T.BUDGETS[r.id];
@@ -669,7 +674,7 @@ function render() {
   if (pick.targets.has("box") && pick.floor !== "pi3") li(w, "Every Sofa Box card also runs on a Pi 3. The Games page would have to hide this game on boxes below its floor (not built yet).");
   if (pick.controls.has("touch") && !pick.targets.has("web")) li(w, "Touch only matters on phones and tablets, which open the web page.");
   if (!pick.controls.has("touch") && pick.targets.has("web")) li(w, "Phones and tablets will open the web page too. Without touch, they need a controller.");
-  if (pick.camera === "follow" && pick.floor === "pi3") li(w, "A camera that comes down low sees more of the world, so it draws more. The bench checks each height on your floor.");
+  if (/^follow/.test(pick.camera) && pick.floor === "pi3") li(w, "A camera that comes down low sees more of the world, so it draws more. The bench checks each height on your floor.");
   if (!w.children.length) li(w, "Nothing to warn about: this fits.", "ok");
   const lt = $("#o-letters"); lt.textContent = "";
   const need = new Set(); for (const l of LANGS) if (pick.languages.has(l.id)) need.add(l.s);
