@@ -8,6 +8,25 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+## 1.1.96
+
+**Trees that are grown, and the maker's kit screen.**
+
+- **The engine grows trees.** Low3D's kit has a new part, `Kit.tree`: a trunk that leans and narrows out of its
+  roots, boughs off it, and a crown made of clumps (or a fir's skirts, or flat caps on crooked boughs, or bare
+  boughs), each darker underneath and lighter on top. One seed, one tree. Three details: the plainest is a few dozen
+  triangles, the fullest a few hundred. Five trees to start from: a fir, a birch, an oak, a crooked tree and a dead one.
+- **WYRD's six trees are grown** on the fuller look (a Pi 4 and up, and a computer): the firs of Hearthrim, the
+  birches of the Briarholt, the Fenmoor's fruit trees, the crooked trees of Cragfell, the great grey trees of the
+  Cinderreach and the Greywyrd's lit ones. Each was a trunk and one lathed shape; now each has five grown forms. On a
+  Pi 3's rungs and in the 2D look they are the shapes they were, vertex for vertex.
+- **The maker has a kit screen** beside setup and poses: every thing the engine's kit builds, one at a time, on a
+  ground a metre to a line, under day, evening, overcast or night, at each detail and from any seed. It says what the
+  thing costs (triangles, bytes on the GPU, how much of the floor's frame) and gives the line a game writes for it.
+- **`tools/kit-sheet.mjs`** pictures the whole kit on one sheet, or two checkouts side by side.
+- **Not yet** on a real Pi 4 or 5. The grown trees add triangles on the fuller look: on a computer's top rung,
+  from a twentieth more in Hearthrim to half as many again in the Fenmoor's open country.
+
 ## 1.1.95
 
 - **A daily show on Home.** Continue watching names a daily show's episode (the news, a recording without an episode

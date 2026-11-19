@@ -1055,6 +1055,17 @@ console.log(JSON.stringify(out));
         self.assertNotIn("__main", src)                                  # itself: a counter named that way broke every shader)
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_kit_sheet_is_there(self):
+        """tools/kit-sheet.mjs pictures the kit from the maker's own list: it parses and says what it takes."""
+        sheet = os.path.join(os.path.dirname(os.path.dirname(BOX)), "tools", "kit-sheet.mjs")
+        r = subprocess.run(["node", "--check", sheet], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        said = subprocess.run(["node", sheet, "--help"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(said.returncode, 0, said.stderr)
+        for words in ("--root", "--things", "--details", "--light", "--row", "never how fast a box draws it"):
+            self.assertIn(words, said.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_the_look_bench_is_there(self):
         """tools/look-bench.mjs pictures a game the same way each time: it parses, says what it can't be, and each of
         its place lists is for a game there is, every place with somewhere to stand."""
@@ -1192,6 +1203,61 @@ console.log(JSON.stringify(out));
         self.assertEqual(top, 10)
         self.assertTrue(out["mesh"])
         self.assertEqual(out["banks"], [True, True, True])               # on the waterline, facing out to the water
+
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_trees_grown_by_rules(self):
+        """Kit.tree (1.1.96): the same seed grows the same tree and another seed another; every kind builds at every
+        detail, with more triangles the higher; it stands on its foot, inside the crown it says it has; fruit goes
+        into the glow mesh; nothing it builds is NaN; the mesh's own jitter is left as it was."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+eval(require("fs").readFileSync(process.argv[1], "utf8"));
+const L = window.Low3D, K = L.Kit, out = { kinds: {} };
+const grow = (o, glow) => { const m = new L.Mesh(64); m.jit = 0.03; const c = K.tree(m, glow || null, 0, 0, 0, 0, 1, o); return { m, c }; };
+const bytes = m => Buffer.from(m.buf, 0, m.n * 20).toString("hex");
+const a = grow(Object.assign({}, K.TREES.oak, { seed: 5, detail: 2 })), b = grow(Object.assign({}, K.TREES.oak, { seed: 5, detail: 2 })), c = grow(Object.assign({}, K.TREES.oak, { seed: 6, detail: 2 }));
+out.same = bytes(a.m) === bytes(b.m); out.other = bytes(a.m) !== bytes(c.m); out.jit = a.m.jit;
+for (const k of Object.keys(K.TREES)) {
+  const row = [];
+  for (const d of [0, 1, 2]) {
+    const t = grow(Object.assign({}, K.TREES[k], { seed: 3, detail: d })), o = K.TREES[k], f = t.m.f;
+    let bad = 0, low = 1e9, high = -1e9, far = 0;
+    for (let i = 0; i < t.m.n; i++) { const x = f[i * 5], y = f[i * 5 + 1], z = f[i * 5 + 2]; if (!(isFinite(x) && isFinite(y) && isFinite(z))) bad++; if (y < low) low = y; if (y > high) high = y; far = Math.max(far, Math.hypot(x - (o.lean || 0) * 0, z)); }
+    row.push({ tris: t.m.n / 3, bad, low, high, far, crown: t.c, lean: o.lean || 0 });
+  }
+  out.kinds[k] = row;
+}
+const g = new L.Mesh(16), fr = grow(Object.assign({}, K.TREES.oak, { seed: 2, detail: 1, fruit: { col: 0xff4a5a, n: 6 } }), g), gem = new L.Mesh(16);
+grow(Object.assign({}, K.TREES.oak, { seed: 2, detail: 1, fruit: { col: [1, 2], n: 5, gem: true } }), gem);
+out.fruit = [g.n / 3, gem.n / 3, fr.m.n === grow(Object.assign({}, K.TREES.oak, { seed: 2, detail: 1 })).m.n];
+// placed, turned and sized: the same tree, moved
+const far = new L.Mesh(64); K.tree(far, null, 10, 2, -4, 1.3, 2, Object.assign({}, K.TREES.fir, { seed: 3, detail: 1 }));
+const near = grow(Object.assign({}, K.TREES.fir, { seed: 3, detail: 1 })).m; let hi = -1e9, hi0 = -1e9;
+for (let i = 0; i < far.n; i++) { hi = Math.max(hi, far.f[i * 5 + 1]); hi0 = Math.max(hi0, near.f[i * 5 + 1]); }
+out.placed = [far.n === near.n, Math.abs((hi - 2) - hi0 * 2) < 1e-3];
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "low3d.js")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertTrue(out["same"]); self.assertTrue(out["other"])
+        self.assertAlmostEqual(out["jit"], 0.03)
+        self.assertEqual(sorted(out["kinds"]), ["birch", "crooked", "dead", "fir", "oak"])
+        for kind, rows in out["kinds"].items():
+            self.assertLess(rows[0]["tris"], rows[1]["tris"], kind); self.assertLess(rows[1]["tris"], rows[2]["tris"], kind)
+            self.assertLess(rows[0]["tris"], 70, kind)                   # the plainest: what a Pi 3 can stand in numbers
+            self.assertLess(rows[2]["tris"], 500, kind)
+            for row in rows:
+                radius, start, _narrow, _at, tip = row["crown"]
+                self.assertEqual(row["bad"], 0, kind)
+                self.assertLess(row["low"], 0.01, kind)                  # its foot is in the ground, not over it
+                self.assertLess(row["high"], tip + 0.6, kind); self.assertGreater(row["high"], start, kind)
+                self.assertLess(row["far"], radius + row["lean"] + 0.9, kind)
+        self.assertEqual(out["fruit"], [6 * 12, 5 * 8, True])            # six boxes, five gems; the leaves the same with or without
+        self.assertEqual(out["placed"], [True, True])
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
     def test_ground_shaded_smooth(self):
@@ -1873,6 +1939,22 @@ class TheCinderKnight(unittest.TestCase):
 class TheWyrd(unittest.TestCase):
     """WYRD (games/wyrd): every model it names is packed in the page, every foe and power it sends down is one it has,
     and the tool that packs the models is there and compiles."""
+
+    def test_its_trees_are_grown_on_the_fuller_look_only(self):
+        """WYRD's six trees: each has a grown form from the engine's Kit.tree, asked for only on the fuller look (the
+        plain shapes, a Pi 3's and the 2D look's, are built when no detail is asked for), and a template is kept by
+        its detail, so a change of rung never shows the other's."""
+        with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        grown = re.search(r"const GROWN = \[(.*?)\n\];", page, re.S)
+        self.assertTrue(grown)
+        crowns = re.findall(r'crown: "([a-z]+)"', grown.group(1))
+        self.assertEqual(len(crowns), 6)
+        self.assertTrue(set(crowns) <= {"round", "tiers", "tall", "caps", "bare"})
+        self.assertIn("if (det) { const g = GROWN[tier] || GROWN[0]; L3.Kit.tree(", page)
+        self.assertIn("const det = rich() ? (E.rung.h >= 1080 ? 2 : 1) : 0", page)
+        self.assertIn('+ v + "d" + det', page)
+        self.assertIn('case "tree": treeMesh(m, glowM, nd.x, y, nd.z, nd.tree, nd.s || 1, nd.seed || 1, !nd.on); break;', page)   # (no detail: the plain shapes)
 
     def test_its_models_and_its_people(self):
         with open(os.path.join(BOX, "games", "wyrd", "index.html"), encoding="utf-8") as f:
@@ -2915,6 +2997,47 @@ out.v = [out.p3, out.p2].map(p => { const b = T.blocks(p); return [T.value(b.pro
         self.assertIn("L2.game({", out["p2"])
 
     @unittest.skipUnless(shutil.which("node"), "needs node")
+    @unittest.skipUnless(shutil.which("node"), "needs node")
+    def test_the_kit_screen_lists_the_engines_kit(self):
+        """The kit screen's list is the engine's Kit: everything it builds into a mesh is on it (what isn't a thing to
+        stand in a scene is named as left out), each makes triangles from the engine as it is, the ones with details
+        make more the higher, and the line it gives a game calls the Kit by name."""
+        script = """
+const noop = () => {};
+globalThis.window = globalThis; globalThis.addEventListener = noop; globalThis.location = { hash: "" };
+globalThis.document = { hidden: false, createElement: () => ({ getContext: () => null }) };
+globalThis.screen = { width: 1920, height: 1080 }; globalThis.innerWidth = 960; globalThis.innerHeight = 540;
+const fs = require("fs"), html = fs.readFileSync(process.argv[1], "utf8");
+eval(fs.readFileSync(process.argv[2], "utf8"));
+const at = html.indexOf("/* The kit's list"), from = html.lastIndexOf("<script>", at) + 8, to = html.indexOf("</" + "script>", at);
+eval(html.slice(from, to));
+const L3 = window.Low3D, KIT = window.MakerKit, out = { things: [], tab: html.includes('data-screen="kit"') && html.includes('id="screen-kit"') };
+const used = new Set(KIT.others);
+for (const t of KIT) {
+  const tris = [];
+  for (const d of t.details || [1]) { const m = new L3.Mesh(64), g = new L3.Mesh(16); t.make(L3, m, g, { seed: 2, detail: d }); tris.push(m.n / 3); }
+  const code = t.code({ seed: 2, detail: 1 }), fn = /L3\.Kit\.([A-Za-z]+)\(/.exec(code);
+  if (fn) used.add(fn[1]);
+  out.things.push({ id: t.id, group: t.group, about: !!t.about, tris, fn: fn ? fn[1] : null, known: !!(fn && typeof L3.Kit[fn[1]] === "function") });
+}
+out.missing = Object.keys(L3.Kit).filter(k => !used.has(k));
+out.gone = KIT.others.filter(k => !(k in L3.Kit));
+console.log(JSON.stringify(out));
+"""
+        r = subprocess.run(["node", "-e", script, os.path.join(self.GAMES, "maker", "index.html"), os.path.join(self.GAMES, "low3d.js")],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = json.loads(r.stdout)
+        self.assertTrue(out["tab"])
+        self.assertEqual(out["missing"], [])                             # a new Kit part goes on the list, or is named as left out
+        self.assertEqual(out["gone"], [])
+        ids = [t["id"] for t in out["things"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        for t in out["things"]:
+            self.assertTrue(t["known"] and t["about"] and t["group"], t["id"])
+            self.assertTrue(all(n > 0 for n in t["tris"]), t["id"])
+            self.assertEqual(t["tris"], sorted(t["tris"]), t["id"])      # a higher detail never has fewer triangles
+
     def test_the_box_only_shows_and_tests(self):
         """A page the box serves (/box/…) never writes a file: no folder, no page from the computer, no saving. Only a
         Pi 3's budget is given, the one that's been measured."""

@@ -389,6 +389,18 @@ shimmer); `air({top, horizon, fog, hill, hills, near, far})`; `draw(camera…)`;
   `hills` and `skyline` (far hills for 3D and 2D), and `blob` (a soft 2D spot); `sky({top, mid, horizon, haze, sun,
   clouds, stars, ridges})` paints a sky for the dome (a big low sun cut by bars, clouds lit on their sunward side,
   far ridges, stars), `dome()` is its mesh, and `ripples(n)` the water's nets of light.
+- **Trees, grown.** `Kit.tree(mesh, glow, x, y, z, yaw, s, {seed, detail, crown, h, r, cr, ch, lean, trunk, marks,
+  leaf, hang, fruit})` grows a tree by rules: a trunk that leans and narrows out of its roots, boughs off it, and a
+  crown made of parts, each darker underneath and lighter on top, so it reads as round under a flat light. `crown` is
+  `"round"` (clumps on boughs under one at the top), `"tiers"` (a fir's skirts), `"tall"` (clumps up the trunk),
+  `"caps"` (flat clumps at the ends of crooked boughs) or `"bare"`. The same seed grows the same tree. `detail` 0 is a
+  trunk and a crown in one piece (17 to 62 triangles), 1 is 90 to 220, 2 is 160 to 450: a Pi 3's rungs take 0 or a
+  game's own plainer shape, the fuller look 1, a computer 2. `marks` bands the bark (a birch), `hang` hangs strands
+  under each clump, `fruit: {col, n, size, gem}` goes into `glow`. It returns its crown as `Kit.cast` wants it thrown:
+  `[radius, from, narrowing to, at, tip]`. `Kit.TREES` has five to start from (`fir`, `birch`, `oak`, `crooked`,
+  `dead`): `Object.assign({}, Kit.TREES.oak, {seed, detail, leaf})`. Build a few of each kind once and stamp them
+  (`Mesh.stamp`), as WYRD does with five of each; `Mesh.sway` then gives their crowns to the wind. It adds no draw
+  call, shader, uniform or vertex byte.
 - **A village, and what lies on the ground.** `Kit.house(mesh, glow, x, y, z, yaw, s, {seed, detail, doorAt, plaster,
   timber, stone, roof: [two shades], door, shutter, light})` is a house with a timber frame, made to be seen from above
   and from the south: a stone foot, plastered walls with their beams, a door with its step, shuttered windows that are
@@ -519,7 +531,7 @@ they did before (1,050 meshes compared).
 <a id="the-maker"></a>**The maker** (`maker/`, not on Home). The first page of our game maker, for a computer with a
 mouse: from a checkout, `python3 -m http.server -d deploy/sofa-box/games 8770` and then
 `http://127.0.0.1:8770/maker/`; on a box, `http://127.0.0.1:8091/box/games/maker/` in its own browser (the box serves
-its pages to itself only, so a computer on its network can't open it there yet). It has two screens:
+its pages to itself only, so a computer on its network can't open it there yet). It has three screens:
 
 - **Setup**: what kind of game it is, how it looks, players, controls, the weakest box it must run on (the floor) and
   the strongest it should use (the ceiling), the frame rate, where it ships, the camera and the languages. It says what
@@ -529,6 +541,12 @@ its pages to itself only, so a computer on its network can't open it there yet).
 - **Poses**: the game's bodies as the game bakes them, their poses turned joint by joint (mirror, revert, clips played
   at a rate, all the bodies in a line-up, the picture a Pi 3 draws, the draw calls and triangles against the floor's
   budget).
+- **Kit**: everything the engine's `Kit` builds into a mesh (trees, rocks, houses, a hut, a lighthouse, barrels and
+  the rest), one at a time on a ground a metre to a line with someone 1.8 m beside it, under a light you pick (day,
+  evening, overcast, night), at each detail it takes and from any seed, or five seeds in a row. Beside it: its
+  triangles, its bytes on the GPU, how tall and wide it stands, how much of the floor's frame it takes, and the line a
+  game writes to stand one in its world. The list is in the page (`window.MakerKit`); a new `Kit` part goes on it, and
+  the tests say so if it doesn't.
 
 Games come from the box's list beside the page, from a games folder on this computer (the one with `low3d.js` in it:
 `deploy/sofa-box/games` in a checkout; Chrome and Edge open folders), or from one page file. Saving writes the changed
@@ -949,6 +967,10 @@ once outside the game, kept the boards that have a way to clear them, and the ga
   `--shots DIR`, `--json FILE`, `--root OTHER/deploy/sofa-box` (another checkout: before and after), `--box
   pi3|pi4|pc`. It cannot be a Pi: the GPU is the computer's own, so GPU time isn't measured, only what costs a VC4
   time. Every number it prints is that computer's.
+- **`node tools/kit-sheet.mjs`** pictures the kit: every thing on the maker's kit screen, at the details it takes,
+  under one light, on one sheet (`--things fir,oak`, `--details`, `--seed`, `--row` for five seeds side by side,
+  `--light`, `--root before=… --root after=…` for two checkouts side by side). For looking at the kit after a change
+  to it. Like the look bench it is this computer's GPU: what the kit builds, never how fast a box draws it.
 - **`node tools/look-bench.mjs --game wyrd`** pictures a game rather than timing it: the same places each time
   (`tools/look-places.json`, in sets: WYRD's `hearthrim` (the square, the well, the smith, a house front, the west
   houses, the Maw's edge), `maw` (two of its floors) and `regions` (each region's camp and its open country); where to

@@ -94,6 +94,12 @@
   .meter i { display: block; height: 8px; background: #121a15; border: 1px solid var(--line); }
   .meter em { display: block; height: 100%; width: 0; background: var(--green); }
   .meter b { grid-column: 2; font-weight: 500; font-size: 11px; }
+  /* the kit */
+  .kit .item small { display: block; font-size: 10px; color: #5d6a62; }
+  .kit .item.on small { color: #0f3a24; }
+  .kit .group { color: var(--pink); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin: 10px 0 4px; }
+  .kit .group:first-child { margin-top: 0; }
+  .kit .about { color: var(--dim); margin: 0 0 8px; }
   @media (max-width: 900px) {
     html, body { height: auto; }
     .app { height: auto; }
@@ -115,7 +121,7 @@
     <div class="srcs"><button id="src-box" class="btn" type="button">the box's games</button><button id="src-folder" class="btn" type="button">open a games folder…</button><button id="src-file" class="btn" type="button">open a page…</button></div>
     <label>game <select id="game"></select></label>
     <input id="file" type="file" accept=".html,.htm,text/html" hidden>
-    <div class="tabs"><button data-screen="setup">setup</button><button data-screen="poses">poses</button></div>
+    <div class="tabs"><button data-screen="setup">setup</button><button data-screen="poses">poses</button><button data-screen="kit">kit</button></div>
     <span id="changed" class="changed"></span>
     <button id="save" class="save" disabled>save</button>
   </header>
@@ -198,6 +204,37 @@
         <div class="meter"><span>draws</span><i><em id="m-draw"></em></i><b id="m-draw-n"></b></div>
         <div class="meter"><span>tris</span><i><em id="m-tri"></em></i><b id="m-tri-n"></b></div>
         <p id="m-note" class="note"></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screen-kit" class="screen" hidden>
+    <div class="poses kit">
+      <div class="col left"><div id="k-list"></div></div>
+      <div class="stage">
+        <div id="k-none" class="none" hidden></div>
+        <canvas id="kgl"></canvas>
+        <div id="k-hud" class="hud"></div>
+        <div class="bar">
+          <div id="k-details" class="chips"></div>
+          <button id="k-prev" class="btn">seed −</button><button id="k-next" class="btn">seed +</button>
+          <button id="k-row" class="btn">a row of five</button>
+          <button id="k-pix" class="btn on">pi 3 picture</button>
+        </div>
+        <div class="bar"><div id="k-lights" class="chips"></div></div>
+      </div>
+      <div class="col right">
+        <div class="h">this thing</div>
+        <p id="k-about" class="about"></p>
+        <div class="stat"><span>triangles</span><b id="k-tris"></b></div>
+        <div class="stat"><span>on the GPU</span><b id="k-bytes"></b></div>
+        <div class="stat"><span>stands</span><b id="k-size"></b></div>
+        <div class="h" id="k-fit-h">in a frame on the floor</div>
+        <div class="meter"><span>tris</span><i><em id="k-fit"></em></i><b id="k-fit-n"></b></div>
+        <p id="k-note" class="note"></p>
+        <div class="h">in the game</div>
+        <textarea id="k-code" rows="5" readonly spellcheck="false"></textarea>
+        <div class="btns"><button id="k-copy" class="btn">copy</button></div>
       </div>
     </div>
   </section>
@@ -679,6 +716,180 @@ $("#new-make").onclick = async () => {
 };
 M.on(what => { if (what === "open" || what === "saved") prefill(); if (what !== "show" || M.screen === "setup") render(); });
 render();
+})();
+</script>
+<script>
+/* The kit's list: every thing Low3D's Kit builds into a mesh, with how the maker makes one to look at and the line a
+   game writes for it. Nothing here touches the page's elements, so the tests run it in node. A thing: id, name, group,
+   about, details (the detail levels it takes, or none), seeded (its seed changes it), make(L3, m, glow, o) with
+   o = {seed, detail}, code(o). */
+(function () {
+"use strict";
+const tree = (id, name, about) => ({ id, name, group: "trees", about, details: [0, 1, 2], seeded: true,
+  make: (L3, m, glow, o) => L3.Kit.tree(m, glow, 0, 0, 0, 0, 1, Object.assign({}, L3.Kit.TREES[id], { seed: o.seed, detail: o.detail })),
+  code: o => "L3.Kit.tree(m, glow, x, y, z, yaw, 1, Object.assign({}, L3.Kit.TREES." + id + ", { seed: " + o.seed + ", detail: " + o.detail + " }));" });
+const house = (walls, about) => ({ id: "house-" + walls, name: "house, " + walls, group: "buildings", about, details: [0, 1, 2], seeded: true,
+  make: (L3, m, glow, o) => { L3.Kit.house(m, glow, 0, 0, 0, 0, 1, { seed: o.seed, detail: o.detail, walls }); },
+  code: o => "L3.Kit.house(m, glow, x, y, z, yaw, 1, { seed: " + o.seed + ", detail: " + o.detail + ", walls: \"" + walls + "\" });" });
+window.MakerKit = [
+  tree("fir", "fir", "Skirts of boughs, each over the one below."),
+  tree("birch", "birch", "A pale leaning trunk with its marks, clumps up it."),
+  tree("oak", "oak", "A ring of clumps on boughs under one at the top."),
+  tree("crooked", "crooked tree", "Flat clumps at the ends of crooked boughs."),
+  tree("dead", "dead tree", "Boughs alone, forked at the top detail."),
+  { id: "pine", name: "pine, plain", group: "trees", about: "Two cones on a trunk: the fewest triangles.", seeded: true,
+    make: (L3, m, glow, o) => { m.seed = o.seed; L3.Kit.pine(m, 0, 0, 0, 1, 0x4a3426, 0x2e5a3a); }, code: () => "L3.Kit.pine(m, x, y, z, 1, 0x4a3426, 0x2e5a3a);" },
+  { id: "palm", name: "palm", group: "trees", about: "A trunk and six fronds, seen from both sides.", seeded: true,
+    make: (L3, m, glow, o) => { m.seed = o.seed; L3.Kit.palm(m, 0, 0, 0, 1, 0x7a5a3a, 0x3a8a4a); }, code: () => "L3.Kit.palm(m, x, y, z, 1, 0x7a5a3a, 0x3a8a4a);" },
+  { id: "rock", name: "rock", group: "land", about: "A crag, uneven by the mesh's seed.", seeded: true,
+    make: (L3, m, glow, o) => { m.seed = o.seed; L3.Kit.rock(m, 0, 0, 1.4, 1.8, [0x4a4a52, 0x5c5a62, 0x6e6a70], 0x7a767c); }, code: () => "L3.Kit.rock(m, x, z, 1.4, 1.8, [0x4a4a52, 0x5c5a62, 0x6e6a70], 0x7a767c);" },
+  { id: "columns", name: "basalt columns", group: "land", about: "Six-sided columns of different heights.", seeded: true,
+    make: (L3, m, glow, o) => { L3.Kit.columns(m, 0, 0, 2, 3, [0x3a3a44, 0x464650, 0x52525c], 0x5e5e68, L3.U.rand(o.seed)); }, code: o => "L3.Kit.columns(m, x, z, 2, 3, [0x3a3a44, 0x464650, 0x52525c], 0x5e5e68, L3.U.rand(" + o.seed + "));" },
+  house("frame", "Plaster in a timber frame, a shingle roof, lit windows."),
+  house("logs", "Logs laid one on another, their ends crossing."),
+  house("stone", "Courses of dressed stone, quoins at the corners."),
+  house("planks", "Boards standing side by side, bound with straps."),
+  { id: "hut", name: "hut", group: "buildings", about: "Four walls and a roof, a lit window.",
+    make: (L3, m, glow) => { L3.Kit.hut(m, 0, 0, 0, 0, 0xb8a88c, 0x6a332c, glow, 0xffd890); }, code: () => "L3.Kit.hut(m, x, y, z, yaw, 0xb8a88c, 0x6a332c, lamps, 0xffd890);" },
+  { id: "lighthouse", name: "lighthouse", group: "buildings", about: "Banded, with its lamp room.",
+    make: (L3, m, glow) => { L3.Kit.lighthouse(m, 0, 0, 0, glow); }, code: () => "L3.Kit.lighthouse(m, x, y, z, lamps);" },
+  { id: "buoy", name: "buoy", group: "things", about: "A striped float with a pole and a lamp.",
+    make: (L3, m, glow) => { L3.Kit.buoy(m, 0, 0, 0xd84a3e, 0xf2efe8, glow, 0xffe9a8); }, code: () => "L3.Kit.buoy(m, x, z, 0xd84a3e, 0xf2efe8, lamps, 0xffe9a8);" },
+  { id: "barrel", name: "barrel", group: "things", about: "Staves and two hoops.",
+    make: (L3, m) => { L3.Kit.barrel(m, 0, 0, 0, 1); }, code: () => "L3.Kit.barrel(m, x, y, z, 1);" },
+  { id: "crate", name: "crate", group: "things", about: "Boards with their battens.",
+    make: (L3, m) => { L3.Kit.crate(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.crate(m, x, y, z, yaw, 1);" },
+  { id: "woodpile", name: "woodpile", group: "things", about: "Cut logs stacked, their ends showing.",
+    make: (L3, m) => { L3.Kit.woodpile(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.woodpile(m, x, y, z, yaw, 1);" },
+  { id: "bench", name: "bench", group: "things", about: "A plank on two legs.",
+    make: (L3, m) => { L3.Kit.bench(m, 0, 0, 0, 0, 1); }, code: () => "L3.Kit.bench(m, x, y, z, yaw, 1);" }
+];
+// what the list leaves out on purpose: the Kit's parts that aren't things to stand in a scene
+window.MakerKit.others = ["shadow", "lay", "cast", "hills", "skyline", "dome", "skyV", "sky", "ripples", "blob", "TREES"];
+})();
+</script>
+<script>
+/* The kit screen: one of the engine's things on a ground a metre to a line, under a light you pick, at each detail it
+   takes and from any seed, with what it costs (triangles, bytes on the GPU, how much of the floor's frame) and the
+   line a game writes to stand one in its world. */
+(function () {
+"use strict";
+const L3 = window.Low3D, T = window.MakerText, Mk = window.Maker, KIT = window.MakerKit, $ = id => document.getElementById(id);
+const cv = $("kgl");
+let g3 = null;
+try { g3 = new L3.GL(cv, { antialias: false }); } catch (e) { g3 = null; }
+const LIGHTS = [
+  { id: "day", name: "day", o: { sun: [-0.4, 0.85, 0.35], sunCol: 0xefe6d2, amb: 0x46525e, ground: 0x1a1612 } },
+  { id: "evening", name: "evening", o: { sun: [-0.6, 0.56, 0.7], sunCol: 0xffc296, amb: 0x60669a, ground: 0x241c30 } },
+  { id: "overcast", name: "overcast", o: { sun: [0.2, 1, 0.1], sunCol: 0x6a7078, amb: 0x8a9098, ground: 0x2a2c2e } },
+  { id: "night", name: "night", o: { sun: [0.3, 0.6, -0.5], sunCol: 0x30406a, amb: 0x1a2030, ground: 0x0a0c12 } }
+];
+let thing = KIT[0], detail = 1, seed = 1, row = false, pixels = true, light = LIGHTS[0], yaw = 0.6, drag = null, idleT = 0, floor = "pi3";
+let made = [], B = [0, 1, 0, 1], count = { tris: 0, glow: 0, w: 0, h: 0 }, last = 0, fps = 0, fpsN = 0, fpsT = 0, hudT = -1e9;
+const M = new Float32Array(16), fmt = n => Math.round(n).toLocaleString("en-US");
+const ground = g3 && (() => { const m = new L3.Mesh(1024); m.at(0, 0, 0); m.disc(16, 48, -0.004, 0x2a3324); return g3.upload(m); })();
+const lines = g3 && (() => {
+  const m = new L3.Mesh(1024); m.glow = 127; m.at(0, 0, 0);
+  for (let i = -8; i <= 8; i++) { m.box(i, -0.002, 0, 0.012, 0.004, 16, i ? 0x1c4a30 : 0x2f8a56); m.box(0, -0.002, i, 16, 0.004, 0.012, i ? 0x1c4a30 : 0x2f8a56); }
+  return g3.upload(m);
+})();
+// someone to stand beside it: 1.8 m
+const person = g3 && (() => { const m = new L3.Mesh(256); m.at(0, 0, 0); m.stack([[0.2, 0], [0.24, 1.0], [0.2, 1.42]], 6, [0x6a3a5a, 0x7a4468], null); m.at(0, 1.6, 0); m.ico(0.17, 0xc8a890); return g3.upload(m); })();
+const takes = () => thing.details ? (thing.details.indexOf(detail) < 0 ? thing.details[thing.details.length - 1] : detail) : null;
+function build() {
+  if (!g3) return;
+  for (const t of made) { g3.free(t.h); g3.free(t.g); } made = [];
+  const d = takes(), n = row ? 5 : 1;
+  for (let k = 0; k < n; k++) {
+    const m = new L3.Mesh(1024), g = new L3.Mesh(64); thing.make(L3, m, g, { seed: seed + k, detail: d == null ? 1 : d });
+    made.push({ h: g3.upload(m), g: g.n ? g3.upload(g) : null, tris: m.n / 3, glow: g.n / 3, b: m.bounds(), m });
+  }
+  const t = made[0], f = t.m.f; let x0 = 1e9, x1 = -1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (let i = 0; i < t.m.n; i++) { const x = f[i * 5], y = f[i * 5 + 1], z = f[i * 5 + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+  count = { tris: t.tris, glow: t.glow, w: Math.max(x1 - x0, z1 - z0), h: y1 };
+  let r = 0, cy = 0; for (const q of made) { r = Math.max(r, q.b[3]); cy = Math.max(cy, q.b[1]); } B = [r, cy];
+  for (const q of made) q.m = null;
+  stats();
+}
+function stats() {
+  const o = { seed, detail: takes() == null ? 1 : takes() }, bud = T.BUDGETS[floor] || null, all = count.tris + count.glow;
+  $("k-about").textContent = thing.about;
+  $("k-tris").textContent = fmt(count.tris) + (count.glow ? " and " + fmt(count.glow) + " of its own light" : "");
+  $("k-bytes").textContent = (all * 60 / 1024).toFixed(1) + " KB";
+  $("k-size").textContent = count.h.toFixed(1) + " m tall, " + count.w.toFixed(1) + " m across";
+  $("k-fit-h").textContent = "in a frame on the floor (" + floor + ")";
+  $("k-fit").style.width = bud ? Math.min(100, all / bud.tris * 100).toFixed(1) + "%" : "0%";
+  $("k-fit-n").textContent = bud ? fmt(all) + " of ~" + fmt(bud.tris) + ": " + fmt(Math.floor(bud.tris / Math.max(1, all))) + " of these fill it" : fmt(all);
+  $("k-note").textContent = bud ? "Still things are built into the world's chunks once, so they cost a frame their triangles and no draw call of their own. The floor's frame holds about " + fmt(bud.tris) + " triangles at 60 a second, for everything in view."
+    : "No budget is measured for this floor yet: the bench on that hardware sets it.";
+  $("k-code").value = thing.code(o);
+}
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function lists() {
+  const L = $("k-list"); L.textContent = ""; let grp = "", box = null;
+  for (const t of KIT) {
+    if (t.group !== grp) { grp = t.group; L.appendChild(el("div", "group", grp)); box = el("div", "list"); L.appendChild(box); }
+    const b = el("button", "item" + (t === thing ? " on" : ""), t.name); b.onclick = () => { thing = t; lists(); build(); }; box.appendChild(b);
+  }
+  const D = $("k-details"); D.textContent = "";
+  for (const d of thing.details || []) { const c = el("button", "chip" + (d === takes() ? " on" : ""), "detail " + d); c.onclick = () => { detail = d; lists(); build(); }; D.appendChild(c); }
+  const G = $("k-lights"); G.textContent = "";
+  for (const l of LIGHTS) { const c = el("button", "chip" + (l === light ? " on" : ""), l.name); c.onclick = () => { light = l; lists(); }; G.appendChild(c); }
+  $("k-prev").disabled = $("k-next").disabled = !thing.seeded; $("k-row").classList.toggle("on", row); $("k-pix").classList.toggle("on", pixels);
+}
+function size() {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const h = pixels ? 360 : Math.max(16, Math.round(r.height * dpr)), w = Math.max(16, Math.round(h * r.width / Math.max(1, r.height)));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+}
+function draw() {
+  if (!g3 || Mk.screen !== "kit" || !made.length) return;
+  size();
+  const n = made.length, gap = B[0] * 1.7 + 0.6, span = (n - 1) * gap / 2 + B[0], aspect = cv.width / Math.max(1, cv.height), fov = 0.7, k = Math.tan(fov / 2);
+  const dist = Math.max(B[0] * 1.25 / k, (span + 1.2) / (k * aspect)) + B[0] * 0.4, cy = B[1], ex = Math.sin(yaw) * dist, ez = Math.cos(yaw) * dist;
+  g3.light(Object.assign({ fog: 0x050706, top: 0x0b1a12, horizon: 0x0f2a1c, near: dist * 2, far: dist * 6 }, light.o));
+  g3.begin(ex, cy + dist * 0.2, ez, 0, cy, 0, fov, 0.1, dist * 8);
+  g3.lit(ground, null, 1, 1, 1, 0); g3.lit(lines, null, 1, 1, 1, 0);
+  for (let i = 0; i < n; i++) { L3.M4.model(M, (i - (n - 1) / 2) * gap, 0, 0, 0, 0, 0, 1); g3.lit(made[i].h, M, 1, 1, 1, 0); if (made[i].g) g3.lit(made[i].g, M, 1, 1, 1, 1); }
+  L3.M4.model(M, -span - 0.7, 0, 0.4, 0, 0, 0, 1); g3.lit(person, M, 1, 1, 1, 0);
+}
+function hud() { $("k-hud").textContent = thing.name + (takes() == null ? "" : " · detail " + takes()) + (thing.seeded ? " · seed " + seed : "") + " · " + light.name + " · " + cv.height + " lines · " + fps + " fps"; }
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000 || 0); last = now;
+  fpsN++; fpsT += dt; if (fpsT >= 1) { fps = Math.round(fpsN / fpsT); fpsN = 0; fpsT = 0; }
+  if (Mk.screen !== "kit") return;
+  if (!drag) { idleT += dt; if (idleT > 2) yaw += dt * 0.25; }
+  draw();
+  if (now - hudT > 150) { hud(); hudT = now; }
+}
+cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, yaw }; cv.setPointerCapture(e.pointerId); idleT = 0; });
+cv.addEventListener("pointermove", e => { if (drag) { yaw = drag.yaw - (e.clientX - drag.x) * 0.01; idleT = 0; } });
+cv.addEventListener("pointerup", () => { drag = null; });
+$("k-prev").onclick = () => { seed = Math.max(1, seed - 1); build(); };
+$("k-next").onclick = () => { seed++; build(); };
+$("k-row").onclick = () => { row = !row; lists(); build(); };
+$("k-pix").onclick = () => { pixels = !pixels; lists(); };
+$("k-copy").onclick = () => { const b = $("k-copy"), t = $("k-code").value; const done = () => { b.textContent = "copied"; setTimeout(() => { b.textContent = "copy"; }, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, () => { $("k-code").select(); }); else $("k-code").select(); };
+function open() {
+  floor = "pi3";
+  if (Mk.page) { const b = T.blocks(Mk.page); if (b.profile) { try { floor = (T.value(b.profile.text, "PROFILE") || {}).floor || floor; } catch (e) { /* the setup says what's wrong with it */ } } }
+}
+Mk.on(what => {
+  if (what === "open" || what === "saved") { open(); if (Mk.screen === "kit") stats(); }
+  else if (what === "show" && Mk.screen === "kit") {
+    $("k-none").hidden = !!g3; cv.hidden = !g3; if (!g3) $("k-none").textContent = "This browser gives the page no WebGL, so the kit can't be drawn here.";
+    lists(); if (!made.length) build(); else stats();
+  }
+});
+Mk.kit = { get count() { return count; }, set(o) {
+  if (o.thing) thing = KIT.find(t => t.id === o.thing) || thing;
+  if (o.detail != null) detail = o.detail; if (o.seed != null) seed = o.seed; if (o.row != null) row = o.row; if (o.pixels != null) pixels = o.pixels;
+  if (o.light) light = LIGHTS.find(l => l.id === o.light) || light; if (o.yaw != null) { yaw = o.yaw; idleT = -1e9; }
+  lists(); build(); draw(); hud();
+} };
+requestAnimationFrame(frame);
 })();
 </script>
 <script>

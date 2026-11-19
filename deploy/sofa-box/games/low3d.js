@@ -1700,6 +1700,127 @@ const Kit = {
     m.stack([[0.3, 0], [0.25, 1.5]], 5, trunk, null);
     m.stack([[2.2, 1.4], [0, 4.6]], 7, leaf); m.stack([[1.6, 3.4], [0, 6.4]], 7, shadeK(leaf, 1.1));
   },
+  // A tree grown by rules: a trunk that leans and narrows out of its roots, boughs off it, and a crown made of parts
+  // (clumps of leaves, tiers of boughs, caps), each darker underneath and lighter on top, so under a flat light it
+  // still reads as round. The same seed grows the same tree. Leaves go into m; what's its own light (fruit) into glow
+  // (may be null). o: { seed, detail (0: a trunk and a crown in one piece, the fewest triangles; 1; 2: more boughs
+  // and clumps), crown ("round": clumps round the top of the trunk; "tiers": a fir's skirts; "tall": clumps up the
+  // trunk; "caps": flat clumps at the ends of crooked boughs; "bare": boughs alone), h (where the crown starts), r
+  // (the trunk at its foot), cr (the crown's radius), ch (its height), lean (how far its top stands off its foot),
+  // trunk, marks (a second bark colour in bands: a birch), leaf (one colour, or [under, middle, top]), hang (strands
+  // under each clump, their colour), fruit: { col, n, size, gem } }. Sizes are metres, times s.
+  // Returns its crown as Kit.cast wants it thrown: [radius, from, narrowing to (of the radius), at, tip].
+  tree(m, glow, x, y, z, yaw, s, o) {
+    o = o || {}; yaw = yaw || 0; s = s == null ? 1 : s;
+    const det = o.detail == null ? 1 : o.detail, rnd = U.rand((o.seed || 1) * 7919 + 13), kind = o.crown || "round";
+    const h = o.h == null ? 2.6 : o.h, r = o.r == null ? 0.26 : o.r, cr = o.cr == null ? 1.6 : o.cr, ch = o.ch == null ? 2.8 : o.ch, top = h + ch;
+    const bark = o.trunk == null ? 0x4a3426 : o.trunk, l1 = o.leaf == null ? 0x3a6a3a : o.leaf, lf = Array.isArray(l1) ? l1 : [U.shade(l1, 0.7), l1, U.shade(l1, 1.2)];
+    const lean = o.lean || 0, la = rnd() * TAU, lx = Math.cos(la) * lean, lz = Math.sin(la) * lean, jit0 = m.jit;
+    const at = (yy, out) => { const t = yy / top; out[0] = lx * t * t; out[1] = yy; out[2] = lz * t * t; return out; };   // the trunk's middle at a height
+    const clumps = [];
+    m.at(x, y, z, yaw, s);
+    // a tube through points P ([x, y, z] each), R its radius at each, n sides; star: every other corner of its first
+    // ring that much further out (roots); closed to a point where a radius is 0
+    const tube = (P, R, n, col, star) => {
+      let prev = null;
+      for (let k = 0; k < P.length; k++) {
+        const a = P[Math.max(0, k - 1)], b = P[Math.min(P.length - 1, k + 1)], c = P[k];
+        let dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2]; const dl = Math.hypot(dx, dy, dz) || 1; dx /= dl; dy /= dl; dz /= dl;
+        let ux = dy, uy = -dx, uz = 0; if (Math.abs(dy) > 0.9) { ux = 1 - dx * dx; uy = -dx * dy; uz = -dx * dz; }   // (across it: level for a bough, toward +x for what stands)
+        const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+        const vx = dy * uz - dz * uy, vy = dz * ux - dx * uz, vz = dx * uy - dy * ux, ring = [];
+        for (let i = 0; i < n; i++) { const g = i / n * TAU, rr = R[k] * (star && k === 0 && (i & 1) ? 1 + star : 1), cs = Math.cos(g) * rr, sn = Math.sin(g) * rr; ring.push([c[0] + ux * cs + vx * sn, c[1] + uy * cs + vy * sn, c[2] + uz * cs + vz * sn]); }
+        if (prev) {
+          const q = P[k - 1], ox = (q[0] + c[0]) / 2, oy = (q[1] + c[1]) / 2, oz = (q[2] + c[2]) / 2;
+          for (let i = 0; i < n; i++) { const j = (i + 1) % n, A = prev[i], B = prev[j], C = ring[j], D = ring[i];
+            if (R[k] === 0) m.tri(A[0], A[1], A[2], B[0], B[1], B[2], c[0], c[1], c[2], col, ox, oy, oz);
+            else m.quad(A[0], A[1], A[2], B[0], B[1], B[2], C[0], C[1], C[2], D[0], D[1], D[2], col, ox, oy, oz); }
+        }
+        prev = ring;
+      }
+    };
+    // a clump of leaves round c: rx wide, ry tall, n sides; k: how bright (the low ones darker). Dark under, a band of
+    // facets, lighter to its top; its corners uneven
+    const puff = (c, rx, ry, n, k) => {
+      const A = [], B = [], a0 = rnd() * TAU, yb = c[1] - ry * 0.42, ya = c[1] - ry * 0.16, ym = c[1] + ry * 0.3, yt = c[1] + ry * 0.62;
+      for (let i = 0; i < n; i++) {
+        const g = a0 + i / n * TAU, ra = rx * (0.86 + rnd() * 0.28), rb = rx * 0.62 * (0.85 + rnd() * 0.3), g2 = g + TAU / n / 2;
+        A.push([c[0] + Math.cos(g) * ra, ya + (rnd() - 0.5) * ry * 0.16, c[2] + Math.sin(g) * ra]); B.push([c[0] + Math.cos(g2) * rb, ym + (rnd() - 0.5) * ry * 0.14, c[2] + Math.sin(g2) * rb]);
+      }
+      const tx = c[0] + (rnd() - 0.5) * rx * 0.3, tz = c[2] + (rnd() - 0.5) * rx * 0.3, under = U.shade(lf[0], k * 0.86), lo = U.shade(lf[0], k), mid = U.shade(lf[1], k), hi = U.shade(lf[2], k), cap = U.shade(lf[2], k * 1.08);
+      for (let i = 0; i < n; i++) { const j = (i + 1) % n, a = A[i], b = A[j], p = B[i], q = B[j];
+        m.tri(a[0], a[1], a[2], b[0], b[1], b[2], c[0], yb, c[2], under, c[0], c[1], c[2]);
+        m.tri(a[0], a[1], a[2], b[0], b[1], b[2], p[0], p[1], p[2], i & 1 ? lo : mid, c[0], c[1], c[2]);
+        m.tri(p[0], p[1], p[2], b[0], b[1], b[2], q[0], q[1], q[2], mid, c[0], c[1], c[2]);
+        m.tri(p[0], p[1], p[2], q[0], q[1], q[2], tx, yt, tz, i & 1 ? hi : cap, c[0], c[1], c[2]); }
+      clumps.push([c[0], c[1], c[2], rx, ry]);
+    };
+    const C = [0, 0, 0], D = [0, 0, 0], sides = det > 1 ? 8 : det ? 6 : 5;
+    // the trunk: out of its roots, up into the crown
+    const tt = kind === "tiers" ? top - ch * 0.12 : kind === "bare" ? top * 0.82 : h + ch * (kind === "tall" ? 0.8 : 0.3), P = [], R = [];
+    if (det) { P.push([0, -0.25, 0]); R.push(r * 1.25); P.push(at(0.34, [0, 0, 0])); R.push(r); } else { P.push([0, -0.2, 0]); R.push(r); }
+    const segs = det > 1 ? 4 : det ? 3 : 1;
+    for (let k = 1; k <= segs; k++) { const yy = 0.34 + (tt - 0.34) * k / segs; P.push(at(yy, [0, 0, 0])); R.push(k === segs ? (kind === "bare" || kind === "tiers" ? 0 : r * 0.34) : r * (1 - 0.5 * k / segs)); }
+    m.jit = 0.07; tube(P, R, sides, bark, det ? 0.55 : 0);
+    if (o.marks != null) for (let k = 0, n = 2 + det; k < n; k++) { const yy = h * (0.25 + 0.6 * k / n) + rnd() * 0.2, w = r * (2.05 - yy / top); at(yy, C); m.box(C[0], yy, C[2], w, 0.07 + rnd() * 0.05, w, o.marks); }
+    // a bough from the trunk at a height out to a point; thick: its radius where it leaves
+    const bough = (y0, e, thick) => { at(y0, C); tube([[C[0], C[1], C[2]], [(C[0] + e[0]) / 2, (C[1] + e[1]) / 2 + 0.12, (C[2] + e[2]) / 2], e], [thick, thick * 0.7, thick * 0.3], det > 1 ? 4 : 3, U.shade(bark, 0.9)); };
+    m.jit = 0.05;
+    if (kind === "tiers") {                              // a fir: skirts of boughs, each over the one below
+      const T = det > 1 ? 5 : det ? 4 : 2, n = det > 1 ? 9 : det ? 7 : 6, span = top - h;
+      for (let k = 0; k < T; k++) {
+        const y0 = h + span * 0.84 * k / T, rk = cr * (1 - 0.74 * k / T), ya = k === T - 1 ? top : y0 + span / T * 1.75, kb = 0.84 + 0.26 * k / Math.max(1, T - 1), a0 = rnd() * TAU, ring = [];
+        at(y0, C); at(ya, D);
+        for (let i = 0; i < n; i++) { const g = a0 + i / n * TAU, rr = rk * (det && (i & 1) ? 0.74 : 1) * (0.92 + rnd() * 0.16); ring.push([C[0] + Math.cos(g) * rr, y0 - rr * (det ? 0.16 : 0.05) + (rnd() - 0.5) * 0.1, C[2] + Math.sin(g) * rr]); }
+        for (let i = 0; i < n; i++) { const j = (i + 1) % n, a = ring[i], b = ring[j];
+          m.tri(a[0], a[1], a[2], b[0], b[1], b[2], D[0], D[1], D[2], U.shade(i & 1 ? lf[1] : lf[2], kb), C[0], y0 + 0.2, C[2]);
+          if (det) m.tri(a[0], a[1], a[2], b[0], b[1], b[2], C[0], y0 + rk * 0.22, C[2], U.shade(lf[0], kb * 0.8), D[0], D[1], D[2]); }
+        clumps.push([C[0], y0 + span / T * 0.4, C[2], rk, span / T]);
+      }
+    } else if (kind === "bare") {                        // boughs alone, forked at the higher details
+      for (let k = 0, n = 3 + det; k < n; k++) { const g = rnd() * TAU, y0 = h * 0.7 + (top * 0.8 - h * 0.7) * k / n, d = cr * (0.55 + rnd() * 0.45), e = [Math.cos(g) * d + lx * 0.6, y0 + ch * (0.25 + rnd() * 0.3), Math.sin(g) * d + lz * 0.6];
+        bough(y0, e, r * 0.42);
+        if (det > 1) tube([[e[0] * 0.6, (y0 + e[1]) / 2 + 0.1, e[2] * 0.6], [e[0] * 0.75 + Math.sin(g) * 0.5, e[1] + 0.35, e[2] * 0.75 - Math.cos(g) * 0.5]], [r * 0.2, r * 0.07], 3, U.shade(bark, 0.9)); }
+    } else if (!det) {                                   // one clump for a crown
+      at(h + ch * 0.42, C); puff([C[0], C[1], C[2]], cr * 0.96, ch * 0.98, 7, 1);
+    } else if (kind === "tall") {                        // clumps up the trunk, smaller as they go
+      const n = det > 1 ? 7 : 5;
+      for (let k = 0; k < n; k++) { const t = k / (n - 1), yy = h + ch * (0.12 + 0.72 * t), g = k * 2.4 + la, d = k === n - 1 ? 0 : cr * 0.42 * (1 - t * 0.6), rx = cr * (0.62 - 0.3 * t);
+        at(yy, C); const e = [C[0] + Math.cos(g) * d, yy, C[2] + Math.sin(g) * d];
+        if (d && det > 1) bough(yy - 0.5, [e[0], e[1] - 0.1, e[2]], r * 0.3);
+        puff(e, rx, ch / n * 2.1, det > 1 ? 6 : 5, 0.86 + 0.24 * t); }
+    } else if (kind === "caps") {                        // flat clumps at the ends of boughs, at their own heights
+      const n = det > 1 ? 4 : 3;
+      for (let k = 0; k < n; k++) { const g = k * TAU / n + la + rnd() * 0.5, d = k === n - 1 ? cr * 0.1 : cr * (0.42 + rnd() * 0.18), yy = h + ch * (0.2 + 0.62 * k / (n - 1));
+        at(yy, C); const e = [C[0] + Math.cos(g) * d, yy, C[2] + Math.sin(g) * d], rx = cr * (0.56 - 0.06 * k);
+        bough(Math.max(0.6, yy - 0.9), [e[0], e[1] - 0.15, e[2]], r * 0.5); puff(e, rx, rx * 0.95, det > 1 ? 7 : 6, 0.88 + 0.2 * k / (n - 1)); }
+    } else {                                             // round: a ring of clumps under one at the top
+      const n = det > 1 ? 6 : 4, a0 = rnd() * TAU;
+      for (let k = 0; k < n; k++) { const g = a0 + k / n * TAU + (rnd() - 0.5) * 0.4, d = cr * (0.46 + rnd() * 0.1), yy = h + ch * (0.24 + rnd() * 0.14);
+        at(yy, C); const e = [C[0] + Math.cos(g) * d, yy, C[2] + Math.sin(g) * d];
+        bough(h * (0.72 + rnd() * 0.2), [e[0] * 0.8 + C[0] * 0.2, e[1] - 0.2, e[2] * 0.8 + C[2] * 0.2], r * 0.45);
+        puff(e, cr * (0.5 + rnd() * 0.08), ch * 0.5, det > 1 ? 7 : 6, 0.84 + rnd() * 0.1); }
+      if (det > 1) for (let k = 0; k < 3; k++) { const g = a0 + (k + 0.5) / 3 * TAU, d = cr * 0.3, yy = h + ch * 0.56; at(yy, C); puff([C[0] + Math.cos(g) * d, yy, C[2] + Math.sin(g) * d], cr * 0.44, ch * 0.42, 6, 1); }
+      at(h + ch * (det > 1 ? 0.76 : 0.66), C); puff([C[0], C[1], C[2]], cr * (det > 1 ? 0.5 : 0.62), ch * (det > 1 ? 0.44 : 0.6), det > 1 ? 7 : 6, 1.08);
+    }
+    m.jit = jit0;
+    if (o.hang != null && det) for (const c of clumps) for (let q = 0, n = det > 1 ? 4 : 3; q < n; q++) { const g = q * TAU / n + c[0] * 3, len = 0.35 + rnd() * 0.4; m.box(c[0] + Math.cos(g) * c[3] * 0.7, c[1] - c[4] * 0.2 - len, c[2] + Math.sin(g) * c[3] * 0.7, 0.06, len, 0.06, o.hang); }
+    if (glow && o.fruit && clumps.length) {              // its own light, on the outside of the clumps
+      const f = o.fruit, cy = Math.cos(yaw), sy = Math.sin(yaw), sz = f.size || 0.2;
+      for (let k = 0, n = f.n == null ? 5 : f.n; k < n; k++) { const c = clumps[k % clumps.length], g = k * 2.4 + la, px = c[0] + Math.cos(g) * c[3] * 0.92, py = c[1] + (rnd() - 0.35) * c[4] * 0.3, pz = c[2] + Math.sin(g) * c[3] * 0.92;
+        glow.at(x + (cy * px + sy * pz) * s, y + py * s, z + (-sy * px + cy * pz) * s, g, s);
+        if (f.gem) glow.ico(sz, Array.isArray(f.col) ? f.col[k % f.col.length] : f.col); else glow.box(0, -sz / 2, 0, sz, sz, sz, Array.isArray(f.col) ? f.col[k % f.col.length] : f.col); }
+    }
+    return [cr, h, 0.55, h + ch * 0.6, top];
+  },
+  // trees to start from (Kit.tree's o): Object.assign({}, Kit.TREES.oak, { seed, detail, leaf… })
+  TREES: {
+    fir: { crown: "tiers", h: 1.5, r: 0.26, cr: 1.6, ch: 5.6, trunk: 0x4a3426, leaf: 0x2e5a3a },
+    birch: { crown: "tall", h: 2.4, r: 0.17, cr: 1.3, ch: 3.4, lean: 0.35, trunk: 0xe0dccc, marks: 0x2a2a2e, leaf: 0x8fae46 },
+    oak: { crown: "round", h: 2.3, r: 0.3, cr: 2.0, ch: 3.2, trunk: 0x5a3a2a, leaf: 0x4a8a3a },
+    crooked: { crown: "caps", h: 1.9, r: 0.3, cr: 1.9, ch: 2.6, lean: 0.9, trunk: 0x2a2026, leaf: 0x4a2a5a },
+    dead: { crown: "bare", h: 1.8, r: 0.26, cr: 1.6, ch: 2.4, lean: 0.3, trunk: 0x6a6258 }
+  },
   // a rock or crag: radius r, height h, colors low to high (3), its top; uneven by the mesh's seed
   rock(m, x, z, r, h, cols, top, rough) {
     m.at(x, 0, z, m.rnd() * TAU);
