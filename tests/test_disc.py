@@ -1161,7 +1161,7 @@ class PickingACopy(Discs):
             p = os.path.join(home, rel)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             open(p, "wb").close()
-        with mock.patch.object(os.path, "expanduser", lambda p: p.replace("~", home, 1)), mock.patch.object(disc.os, "name", "posix"):
+        with mock.patch.object(os.path, "expanduser", lambda p: home + p[1:] if p.startswith("~") else p), mock.patch.object(disc.os, "name", "posix"):
             found = disc.find_copies()
             top = disc.browse()
             movies = disc.browse(os.path.join(home, "Movies"))

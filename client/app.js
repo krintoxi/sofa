@@ -2567,7 +2567,7 @@ function discSourceDialog() {
     <div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`, true);
   const found = $(".pick-found", d), box = $(".pick-browse", d);
   const row = it => `<li class="${it.copy ? "is-copy" : ""}">${icon(it.copy ? "i-disc" : "i-folder")}<span><b>${esc(it.name)}</b>${it.where ? `<small>${esc(it.where)}${it.shown ? " › " + esc(it.shown) : ""}</small>` : it.size ? `<small>${esc(bytes(it.size))}</small>` : ""}</span>
-    ${it.copy ? `<button class="btn primary small" data-pick-open="${esc(it.path)}">Open</button>` : it.folder ? `<button class="mini" data-pick-go="${esc(it.path)}">Open folder</button>` : ""}</li>`;
+    ${it.copy ? `<button class="btn primary pick-open" data-pick-open="${esc(it.path)}">Open</button>` : it.folder ? `<button class="mini" data-pick-go="${esc(it.path)}">Open folder</button>` : ""}</li>`;
   async function showFound() {
     try { pickFound = (await api("/api/admin/disc/copies")).copies; } catch (e) { pickFound = []; }
     found.innerHTML = pickFound.length ? `<ul class="pick-list">${pickFound.map(row).join("")}</ul>` : `<p class="hint">No DVD copies in the usual folders or on the drives plugged in. Look in a folder below.</p>`;
