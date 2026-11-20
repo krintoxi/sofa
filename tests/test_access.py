@@ -160,6 +160,9 @@ class Access(unittest.TestCase):
         self.assertIn("Heat", [m["title"] for m in viewer.call("/api/library")[1]["movies"]])
         self.assertFalse(viewer.call("/api/session")[1]["user"]["adult"])
         self.admin.call("/api/admin/users/%d/adult" % self.ids["acc-viewer"], {"on": True})
+        who = viewer.call("/api/session")[1]["user"]                                  # the switch lets them be asked...
+        self.assertEqual((who["adult"], who["adult_ask"]), (False, True))
+        self.assertEqual(viewer.call("/api/adult/age", {"ok": True})[0], 200)         # ...and they say they're 18 or older
         self.assertTrue(viewer.call("/api/session")[1]["user"]["adult"])
         self.admin.call("/api/admin/users/%d/adult" % self.ids["acc-viewer"], {"on": False})
         self.assertFalse(viewer.call("/api/session")[1]["user"]["adult"])

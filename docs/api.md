@@ -62,6 +62,16 @@ A `401` means the token was signed out: pair again.
   "bit_rate", "chapters", "added", "modified"}, "play": {"mode", "why"}, "has": {"intro", "scrub"}}`. Unlike
   `/api/play` it starts nothing (no Skip Intro search, no scrubbing pictures).
 - `GET /api/library` → `{"generated", "shows": [...], "movies": [...], "likes": [...], "adult": {...} (only for adult profiles)}`.
+- The Adult section's top lists (only for a profile with Adult on; 404 for anyone else and on a public Sofa):
+  `GET /api/adult/top` → `{"sites": [{"id", "name", "on", "home", "terms"}], "periods"}`;
+  `GET /api/adult/top/<site>?cat=<slug>&period=week|month|all|rated` → `{"state": "ready"|"reading"|"down", "items", "cats"}`
+  (never waits on the site: ask again while it says `reading`); `GET /api/adult/top/<site>/v/<id>` → one video
+  (`embed` is the site's own player); `GET /api/adult/kept` → `{"kept", "played"}`;
+  `POST /api/adult/kept` `{"site", "id", "keep": true|false}` (no `keep`: it was played);
+  `POST /api/admin/adult-sites` `{"site", "on"}` (admins).
+- `user.adult` in `/api/session` is true only when an admin switched Adult on for the person **and** the person has
+  said they are 18 or older. `user.adult_ask` is true while the switch is on and they haven't: show them the
+  question and send `POST /api/adult/age` `{"ok": true}` on their yes.
   `GET /api/library?since=<generated>` answers `{"same": true}` when nothing changed: ask that
   once a minute.
 - A show: `id`, `name`, `poster`, `backdrop`, `logo`, `summary`, `genres`, `premiered`, `network`,

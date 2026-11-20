@@ -324,3 +324,19 @@ def _performers_first(rest, known_performers):
         elif found and i < len(words) and not any(norm(" ".join(words[i:])).startswith(norm(k)) for k in known):
             break
     return found, " ".join(words[i:]) or None
+
+
+def file_says(tags, saved=False):
+    """Performers and tags from a video file's own tags (the artist and genre written into an MP4 or MKV), for the
+    Adult section when nothing next to the file names them. `saved`: it came from a link, where the artist is whoever
+    posted it, not who is in it. Returns {"performers": [...], "tags": [...]}."""
+    def names(text):
+        out = []
+        for part in re.split(r"\s*(?:[,;/|]|\s&\s|\sand\s)\s*", str(text or "")):
+            part = re.sub(r"\s+", " ", part).strip()
+            if 1 < len(part) <= 60 and part.lower() not in (x.lower() for x in out):
+                out.append(part)
+        return out[:12]
+    tags = tags or {}
+    who = [] if saved else names(tags.get("artist") or tags.get("album_artist"))
+    return {"performers": who, "tags": names(tags.get("genre"))}

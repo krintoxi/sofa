@@ -4,7 +4,7 @@ import os
 import threading
 import time
 
-from . import archive, artwork, backup, config, disc, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, travel, trickplay, updater
+from . import archive, artwork, backup, config, disc, dvr, fetch, fileops, hardware, intros, live, machine, media, optimize, organizer, places, previews, store, toplists, travel, trickplay, updater
 from .library import LIBRARY
 
 INTERVAL = 20
@@ -135,6 +135,7 @@ def start():
     live.start()
     dvr.start()
     backup.start()
+    toplists.start()
     threading.Thread(target=_watch, daemon=True, name="watcher").start()
     threading.Thread(target=_prober, daemon=True, name="prober").start()
     optimize.start()

@@ -24,7 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, together, travel, tuners, uploads)
-from . import details, disc, history
+from . import details, disc, history, toplists
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -100,6 +100,13 @@ class Handler(BaseHTTPRequestHandler):
         """A picture-based subtitle track to draw onto the video (?burn=<stream index>)."""
         v = (qs.get("burn") or [""])[0]
         return int(v) if v.isdigit() else None
+
+    @staticmethod
+    def adult_only(u):
+        """The Adult section's pages that reach other sites (their top lists, kept links): a signed-in person with the
+        Adult switch on. Never a visitor, a guest or a Kids profile, and never on a public Sofa."""
+        return bool(u) and bool(u.get("adult")) and not (u.get("visitor") or u.get("guest") or u.get("kids")) \
+            and not config.demo_on()
 
     def device_ip(self):
         """The address of the device asking (an IPv4 address even when it arrives as ::ffff:192.168.1.5)."""
@@ -865,6 +872,7 @@ class Handler(BaseHTTPRequestHandler):
                               "retro_tv": archive.on() and not (u and (u.get("kids") or u.get("visitor"))),
                               "retro_eras": archive.on() and archive.eras_on(),
                               "previews": bool(config.get("previews")),     # (off: a clip that isn't made won't be)
+                              "adult_top": bool(self.adult_only(u) and toplists.on()),
                               "signup": bool(config.get("signups")),
                               "waiting": auth.waiting() if u and u.get("admin") else 0,
                               "profiles": self.may_switch(u) and len(auth.profiles()),
@@ -903,6 +911,21 @@ class Handler(BaseHTTPRequestHandler):
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
                             if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
             return self.json(out)
+        if path.startswith("/api/adult/"):                # a site's top lists and kept links (sofa/toplists.py)
+            if not self.adult_only(u):
+                return self.error(404, "Not found.")
+            if path == "/api/adult/top":
+                sites = toplists.summary()
+                return self.json({"sites": sites if u.get("admin") else [x for x in sites if x["on"]],
+                                  "periods": [list(p) for p in toplists.PERIODS]})
+            if path == "/api/adult/kept":
+                return self.json(toplists.kept(u["id"]))
+            m = re.match(r"^/api/adult/top/([a-z0-9]{1,20})(?:/v/([A-Za-z0-9]{1,40}))?$", path)
+            if m and m.group(2):
+                it = toplists.one(u["id"], m.group(1), m.group(2))
+                return self.json(it) if it else self.error(404, "That video isn't in a list any more.")
+            out = toplists.listing(m.group(1), (qs.get("cat") or [""])[0][:60], (qs.get("period") or ["week"])[0]) if m else None
+            return self.json(out) if out else self.error(404, "Not found.")
         if path.startswith("/api/live") and u.get("kids"):
             return self.error(403, "Live TV isn't on for this profile.")
         if path == "/api/live" and (qs.get("rev") or [""])[0] == "1":     # has Live TV's list changed? (a few letters)
@@ -1423,6 +1446,22 @@ class Handler(BaseHTTPRequestHandler):
                     return self.error(400, "The end has to come after the start.")
                 intros.set_marker(item["id"], kind, start, end, "manual")
             return self.json({"ok": True, "markers": intros.for_player(item["id"])})
+        if path == "/api/adult/age":                      # "I am 18 or older", said by the person themselves, once
+            if not u.get("adult_ask") or data.get("ok") is not True or config.demo_on():
+                return self.error(400 if u.get("adult") or u.get("adult_ask") else 404, "Nothing to confirm.")
+            if auth.confirm_age(u["id"]):
+                store.log("account", "%s said they are 18 or older (asked before the Adult section opens)" % u["name"])
+            return self.json({"ok": True})
+        if path == "/api/adult/kept":                     # a listed video played (keep absent), kept or let go
+            if not self.adult_only(u):
+                return self.error(404, "Not found.")
+            try:
+                row = toplists.note(u["id"], str(data.get("site") or ""), str(data.get("id") or ""),
+                                    data.get("keep") if isinstance(data.get("keep"), bool) else None)
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            return self.json({"ok": True, "link": row}) if row or data.get("keep") is False else \
+                self.error(404, "That video isn't in a list any more.")
         m = re.match(r"^/api/like/(.{1,200})$", path)
         if m:
             key = m.group(1)
@@ -1532,6 +1571,14 @@ class Handler(BaseHTTPRequestHandler):
             live.refresh(force=True, download=False)    # the tuners asked now (they're at home); no list fetched here
             threading.Thread(target=guide.refresh, kwargs={"force": True}, daemon=True).start()
             return self.json({"ok": True, "tuners": tuners.status(), "guide": guide.status()})
+        if path == "/api/admin/adult-sites":              # a site's top lists, on or off (off until someone says so)
+            if not self.adult_only(u):
+                return self.error(404, "Not found.")
+            try:
+                toplists.set_on(str(data.get("site") or ""), bool(data.get("on")))
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            return self.json({"ok": True, "sites": toplists.summary()})
         if path == "/api/admin/live":
             try:
                 if data.get("add"):
@@ -1645,9 +1692,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json({"ok": True, "installing": True})
                 if data.get("add"):
                     add = data["add"]
-                    if add.get("adult") and not u.get("adult"):
-                        return self.error(403, "Switch the Adult section on for yourself first (Server, People).")
-                    fetch.add(add.get("url"), bool(add.get("adult")), bool(add.get("playlist")))
+                    if add.get("adult"):                  # (an older page, or a saved "Send to Sofa (Adult)" bookmark)
+                        return self.error(400, fetch.ADULT_GONE)
+                    fetch.add(add.get("url"), bool(add.get("playlist")))
                     if not fetch.tool():
                         return self.json({"ok": True, "note": "Queued. Install yt-dlp below so Sofa can start downloading."})
             except ValueError as exc:
@@ -2241,7 +2288,7 @@ def slim_library(u):
         out["kids_choices"] = picked
     if "adult" in lib:
         out["adult"] = dict(lib["adult"], shows=[show(s) for s in lib["adult"]["shows"]],
-                            movies=[clean(m, ("ext", "size")) for m in lib["adult"]["movies"]])
+                            movies=[clean(m, ("ext",)) for m in lib["adult"]["movies"]])    # (their size: the Adult page sorts and lists by it)
     with _slim_lock:
         for k in [k for k in _slim if k[0] != LIBRARY.generated or (visitor and k[5] not in (None, key[5]))]:
             del _slim[k]

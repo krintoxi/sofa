@@ -85,6 +85,8 @@ DEFAULTS = {
     "retro_eras": True,                  # Retro TV's decades: recordings of TV as it aired; an admin can turn them off; never for Visitors
     "defaults_rev": 1,                   # which changes of a default this config.json has taken (load()): 1 = the decades on again
     "live_headers": False,               # channels that ask for a made-up browser name or referrer: hidden unless allowed
+    # The Adult section's top lists: the sites switched on (sofa/toplists.py knows which there are). None to begin with.
+    "adult_sites": [],
     "live_check": True,                  # look at the channels now and then, and leave out the ones that don't answer
     # Tuners at home (sofa/tuners.py): [{"id", "name", "base", "lineup", "tuners", "on"}]. Found ones are listed off.
     "tuners": [],
@@ -170,6 +172,8 @@ DEMO_LOCKED = {
     # Live TV only from the demo's own channel list: no lists, tuners or guides added by hand, no channel that asks
     # for a made-up browser name or referrer, and no checks from this server (they'd send a made-up browser name)
     "live_playlists": [], "tuners": [], "guide_sources": [], "live_headers": False, "live_check": False,
+    # no Adult section's top lists from other sites
+    "adult_sites": [],
     # no accounts, sign-ups or guests, nothing on the home network, nothing from outside
     "signups": False, "guest_access": False, "dlna": False, "upnp": False, "duckdns_token": "", "remote": "home",
     "trust_proxy": False, "https": "off", "check_service": "", "auto_drives": False,

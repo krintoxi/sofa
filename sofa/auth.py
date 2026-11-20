@@ -148,7 +148,7 @@ def clear_guest():
 
 
 def list_users():
-    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.created, u.pending, u.note,
+    rows = store.q("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.adult_ok, u.kids, u.created, u.pending, u.note,
                       (SELECT MAX(seen) FROM sessions s WHERE s.user_id = u.id) AS seen
                       FROM users u WHERE u.guest != 2 ORDER BY u.guest, u.name""")
     return [dict(r) for r in rows]
@@ -160,8 +160,17 @@ def set_password(user_id, password):
 
 
 def set_adult(user_id, on):
-    """Whether this person may see the Adult section. Guests never can."""
+    """Whether this person may see the Adult section. Guests never can. The switch is an admin's; the person still
+    says themselves that they're 18 or older before any of it shows (confirm_age)."""
     store.ex("UPDATE users SET adult = ? WHERE id = ? AND guest = 0 AND kids = 0", 1 if on else 0, user_id)
+
+
+def confirm_age(user_id):
+    """This person says they are 18 or older: once, kept with the day. Only someone whose Adult switch is on is asked.
+    True when it was written down now."""
+    cur = store.ex("UPDATE users SET adult_ok = ? WHERE id = ? AND adult = 1 AND guest = 0 AND kids = 0 AND adult_ok IS NULL",
+                   int(time.time()), user_id)
+    return cur.rowcount > 0
 
 
 def set_kids(user_id, on):
@@ -255,7 +264,7 @@ def session_user(token):
     if not token:
         return None
     key = _token_key(token)
-    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.kids, u.avatar, u.pin, u.prefs, s.seen, s.created FROM sessions s
+    row = store.q1("""SELECT u.id, u.name, u.admin, u.guest, u.adult, u.adult_ok, u.kids, u.avatar, u.pin, u.prefs, s.seen, s.created FROM sessions s
                       JOIN users u ON u.id = s.user_id WHERE s.token = ? AND u.pending = 0""", key)
     if not row or row["seen"] < time.time() - SESSION_DAYS * 86400:
         return None
@@ -263,9 +272,12 @@ def session_user(token):
         return None
     if time.time() - row["seen"] > 300:
         store.ex("UPDATE sessions SET seen = ? WHERE token = ?", int(time.time()), key)
+    switch = bool(row["adult"]) and not row["guest"] and not row["kids"]
     return {"id": row["id"], "name": row["name"], "admin": bool(row["admin"]) and not row["guest"], "guest": bool(row["guest"]),
             "visitor": row["guest"] == 2,
-            "adult": bool(row["adult"]) and not row["guest"] and not row["kids"], "kids": bool(row["kids"]),
+            # Adult: an admin's switch for this person, and this person's own word that they're 18 or older.
+            # "adult_ask": the switch is on and they haven't been asked yet (nothing adult shows until they are).
+            "adult": switch and bool(row["adult_ok"]), "adult_ask": switch and not row["adult_ok"], "kids": bool(row["kids"]),
             "avatar": _avatar(row), "pin": bool(row["pin"]), "prefs": _prefs(row["prefs"])}
 
 

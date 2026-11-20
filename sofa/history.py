@@ -1028,9 +1028,9 @@ def match(rec, index, pairs):
 
 def profiles():
     """The profiles history can go to: not guests, not people still waiting for an account."""
-    return [{"id": r["id"], "name": r["name"], "kids": bool(r["kids"]), "adult": bool(r["adult"]) and not r["kids"],
+    return [{"id": r["id"], "name": r["name"], "kids": bool(r["kids"]), "adult": bool(r["adult"]) and bool(r["adult_ok"]) and not r["kids"],
              "admin": bool(r["admin"])}
-            for r in store.q("SELECT id, name, admin, adult, kids FROM users WHERE guest = 0 AND pending = 0 ORDER BY id")]
+            for r in store.q("SELECT id, name, admin, adult, adult_ok, kids FROM users WHERE guest = 0 AND pending = 0 ORDER BY id")]
 
 
 def suggest(users, sofa=None):

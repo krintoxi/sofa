@@ -6,6 +6,12 @@
 begin with, **admins included**, so the first time, switch it on for yourself. (If there's
 adult content you can't see, the Server page's Overview says so and has a button for it.)
 
+**Each person is asked once whether they are 18 or older**, the first time they open Adult after the switch is
+on for them. Until they say so themselves, nothing adult is sent to their profile. Sofa keeps the day they
+answered, and **Server → People** shows it. An admin can't answer for someone else. After updating to 1.5.30,
+people who already had Adult are asked once too; do it in a browser (the TV apps can't ask, and show no Adult
+section until it's answered).
+
 It's never shown to:
 
 - people with the switch off,
@@ -53,52 +59,30 @@ folder of several videos).
   - A folder named like a category (`Hentai`, `Series`, `Collections`, `Amateur`, `VR`, …)
     moves into `Adult/` **with everything inside it kept as it is**.
   - A folder of several scenes becomes a collection under `Adult/Movies/`.
-- **Save from a link.** In the Adult tab (admins), **+ Add a link**: paste the address of a
-  video page and Sofa downloads it into the Adult section. See below.
 - **Already have an `XXX`, `Adult` or `Porn` folder** in `Movies`, `Shows` or
   `~/Entertainment`? Sofa moves its contents into `Adult/`, keeping its folders as categories.
 
-## Save from a link
+## Not from a link
 
-The **Server → Downloads** tab, or **+ Add a link** in the Adult tab. The first time, press
-**Install yt-dlp**. It's the free, open-source downloader that knows YouTube, Vimeo and well
-over a thousand other sites, including the free adult video sites. Sofa keeps it up to date.
-
-- Tick **Put it in the Adult section** for adult videos. Normal videos are filed under Movies.
-- Tick **It's a playlist** to save a whole playlist (up to 50 videos).
-- Sofa also saves the page's title, date, channel, cast and tags with the video, so it arrives
-  with its details already filled in.
-- **Send to Sofa from your browser:** drag the "Send to Sofa" button from the Downloads tab to
-  your bookmarks bar. On any video page, click it and the box opens with the link filled in.
-
-**"The site didn't hand over the video" / "No video formats found".** The site wants you signed
-in, or to confirm your age (some countries require it for adult sites). Do that in a browser on
-the Sofa computer, then choose that browser under **Use the sign-in from** on the Downloads tab,
-and try again. Firefox works as it is; Safari needs Full Disk Access for the program that runs
-Sofa (System Settings → Privacy & Security). If it still fails, the site may have changed:
-Sofa updates yt-dlp by itself and tries once more.
-
-**"yt-dlp doesn't run on this computer".** The Install button tries the ready-made Mac version,
-then the cross-platform one with any Python 3.11 or newer it finds, then Homebrew, and says
-what went wrong with each. On an older Mac, installing Python 3.12 from python.org, or
-`brew install yt-dlp`, then pressing **Try again** usually does it.
-
-Only save videos you're allowed to keep.
+Sofa's **Save from a link** (Server → Downloads) doesn't save adult videos: nothing from a link goes to the Adult
+section, and a video its site marks as for adults only is skipped. The free adult sites' terms forbid downloading
+their videos. Videos an older Sofa saved that way stay where they are, with the details that came with them. To
+watch what's popular at a site without keeping it, see **Top lists** below.
 
 ## Browsing
 
 | | |
 |---|---|
 | **Categories** | one button and one row per folder (Movies, Hentai, Shows, ...) |
-| **Studios** | from file names like `Studio.21.03.14.Performer.Name.Title`, `.nfo` files, saved links, ThePornDB |
+| **Studios** | from file names like `Studio.21.03.14.Performer.Name.Title`, `.nfo` files, ThePornDB |
 | **Performers** | same sources; names joined with "And" in file names are recognised too |
-| **Tags** | from saved links, `.nfo` files and ThePornDB |
+| **Tags** | from `.nfo` files and ThePornDB |
 | **Favorites** | press ♥ on a video or a performer |
 | **Shuffle / Play all** | on every list: plays one after another |
 
 Each video's picture is a frame from **the middle of the video** (not the opening logo or a
 black frame), shown in a wide card like the video itself. Pictures that came with the video
-(a saved link, an `.nfo` file, ThePornDB, or a `folder.jpg` you put there) are used instead.
+(an `.nfo` file, ThePornDB, or a `folder.jpg` you put there) are used instead.
 Pointing at a card plays a short preview of the video (with the TV remote: picking it).
 Pictures stuck on a bad moment: **Manage → Take new pictures from the video** on its page.
 
@@ -106,10 +90,47 @@ All of that works without any account or key. For real covers and descriptions, 
 **ThePornDB** token under **Server → Settings**. Wrong or missing details: open the video and
 press **Find details**.
 
+## Sorting, filtering, and the list
+
+Every list of videos sorts by **Newest**, **Release date**, **Name**, **Longest**, **Largest** and **Best picture**,
+and narrows by **picture** (4K, 1080p, 720p, SD), **length**, the **sound's language** and **played or not**. Each
+filter shows only the choices that list has, with how many. **Cards / List** switches between the cards and a list
+with a row per video: who's in it, its tags, its length, picture, size, languages and the day it was added.
+
+Under each card: the file's size, its sound's languages ("EN + ES" for two) and **CC** when it has subtitles. A
+video's page has the languages in full and **This file**: the picture, every sound and subtitle track, the file's
+size and length, and how this device gets it.
+
+**Preview sound on / off** (next to the search box) is the sound of the short preview a card plays when you point
+at it.
+
+Performers and tags also come from a file's own tags (the artist and genre written into an MP4 or MKV) when nothing
+else names them. They show after Sofa has read the file and scanned again.
+
+## Top lists from a free site
+
+**Adult → Top lists** shows the 25 most watched videos of a category at a free site: this week, this month, of all
+time, or the best rated. It is **off** until an admin switches a site on (**Sites**, at the foot of that page).
+
+- Sofa asks the site's own public API for the lists, and nothing else.
+- A video plays in **the site's own player**, in your browser, straight from the site, with the site's own
+  advertising and notices. Sofa doesn't fetch, keep, convert or pass on the video, and there is no Save: the sites'
+  terms don't allow one.
+- Above the player, **Watch on …** opens the video's page at the site.
+- **Keep** keeps the link: the title, the picture's address, the site and the day. **Adult → Kept** lists them by
+  day, with what you played lately and didn't keep (forgotten after 30 days; with **Keep no logs** on, what you
+  played isn't listed at all). A video the site removes goes from
+  Kept too.
+- Only people with the Adult switch see any of it. Never visitors, guests or Kids profiles, and never a public Sofa.
+- A site's player is made for a mouse or a finger. On a TV or a Sofa Box it may not answer the remote.
+
+Which sites, what their terms say and which were left out: [adult-sites.md](adult-sites.md).
+
 ## Privacy
 
 - **Nothing readable in history.** Adult pages have addresses like `#/movie/am:h19ed4feb57ac`,
   with no titles, so browser history and bookmarks don't give anything away.
+- **Top lists and Kept** have addresses with a video's id, never its title, and Activity never names a site.
 - **The Server page doesn't name titles.**
   - Activity says "Added 1 video to Adult".
   - "Watching now" says "something private".

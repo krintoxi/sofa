@@ -425,7 +425,7 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   watched. A genre page also lists titles with its name in the title (Adventure Time under
   Adventure). Home has a row for your biggest genres.
 - **Save from a link.** Paste the address of a video page (YouTube, Vimeo and well over a
-  thousand other sites); Sofa downloads it with the free yt-dlp tool and files it.
+  thousand other sites); Sofa downloads it with the free yt-dlp tool and files it. Not adult videos.
   Server → Downloads.
 - **Tidy folders.** Download-style names ("Heat.1995.1080p.BluRay") are tidied, collections
   get a folder per movie, and stray "XXX" folders move into the Adult section.
@@ -510,8 +510,8 @@ first, admins included; guests and TVs never see it.
   Series and collections inside them are recognised.
 - **Browse** by category, studio, performer and tag, keep favorites (♥), search, shuffle,
   and get moving previews on hover or remote focus. All of it works offline, from file
-  names, `.nfo` files and saved links. A free ThePornDB token adds real covers.
-- **Add** by dropping files or whole folders into `Inbox/XXX`, or with **+ Add a link**.
+  names and `.nfo` files. A free ThePornDB token adds real covers.
+- **Add** by dropping files or whole folders into `Inbox/XXX`, or with **+ Send files**.
 - **Pictures from the middle** of each video, in wide cards, unless the video came with its own.
 - **Private:** addresses don't contain titles, and the Server page never names adult titles.
 

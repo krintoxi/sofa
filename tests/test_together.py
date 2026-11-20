@@ -186,6 +186,7 @@ class ThroughTheServer(unittest.TestCase):
         cls.ids = {r["name"]: r["id"] for r in store.q("SELECT id, name FROM users WHERE name LIKE 'wt-%'")}
         auth.set_kids(cls.ids["wt-kid"], True)
         auth.set_adult(cls.ids["wt-grown"], True)
+        auth.confirm_age(cls.ids["wt-grown"])
         kids.choose("s:bluey", True)
 
     @classmethod

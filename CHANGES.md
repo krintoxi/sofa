@@ -6,6 +6,46 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.30 (2026-11-19)
+
+The Adult section.
+
+- **More on every video.** Under a card: the file's size, its sound's languages ("EN + ES") and CC; who's in it
+  comes first in its line. A video's page lists its languages, above **This file**; so does a series' page and its
+  episodes.
+- **Sort and filter.** Two more sorts, **Largest** and **Best picture**; filters by picture (4K, 1080p, 720p, SD),
+  length, the sound's language, and played or not, each with how many and only the choices that list has.
+- **Cards or a list.** A row per video: performers and studio, tags, length, picture, size, languages, added.
+- **Preview sound on / off**, next to the search box (the previews have had sound since they were remade; the switch
+  was only on a title's banner).
+- **Performers and tags from the file's own tags** (artist, genre) when no .nfo, saved link or name gives them.
+- **"I am 18 or older", once for each person.** An admin's Adult switch now lets a person be asked; the Adult
+  section opens for them when they say themselves that they are 18 or older. Until then the server sends their
+  profile nothing adult. Sofa keeps the day, and Server → People shows it. **People who already had Adult are asked
+  once after this update**, in a browser: the Fire TV and Roku apps can't ask, and show no Adult section until it's
+  answered. This is a person's own word, not a check of their age.
+- **Top lists** (Adult → Top lists): the 25 most watched videos of a category at a free site, this week, this month,
+  all time or best rated. **Off until an admin switches a site on.** Sofa reads the site's public API for the lists;
+  a video plays in the site's own player, in your browser, straight from the site, with a link to its page there.
+  Sofa never fetches, keeps or passes on the video. One site is built in, Eporner, whose terms allow exactly this;
+  [docs/adult-sites.md](docs/adult-sites.md) has what its terms say, how Sofa keeps to them, and the sites left out
+  and why.
+- **Kept** (Adult → Kept): keep a link from a top list (title, the picture's address, the site, the day), listed by
+  day, with what you played lately and didn't keep. Once a day Sofa asks the site which it has removed, and those go.
+- **No Save for those videos.** The sites' terms forbid downloading, so there is none.
+- **Save from a link no longer saves adult videos.** Gone: **+ Add a link** in the Adult section, "Put it in the
+  Adult section", "+ Add a link to Adult" and the "Send to Sofa (Adult)" bookmark (an old one now gets a plain
+  answer). A video its site marks as for adults only is skipped (yt-dlp's `--age-limit 17`), which also skips
+  age-restricted videos at other sites such as YouTube. Links an older Sofa had queued for Adult are not downloaded.
+  Videos already saved stay, with their details. The free adult sites' terms forbid downloading their videos, and
+  Sofa Boxes are to be sold.
+- Only for people with the Adult switch: never visitors, guests, Kids profiles or a public Sofa. A request to Sofa
+  never waits on the site (lists are read in the background and kept half an hour), and a site that's down is a page
+  that says so.
+- Tested with a stand-in for the site (`tests/test_adult_top.py`, `tests/test_adult_pages.py`): nothing in the tests
+  reaches the internet. **Not done:** the real site's player has not been opened from Sofa, so whether it plays inside
+  Sofa's page (and whether the site asks for an age check there) is unseen; nothing was seen on a TV, a Sofa Box, a
+  phone in the hand or Safari. Seen in Chrome on a Mac only.
 ## 1.5.29 (2026-11-19)
 
 - **Save this disc.** Put a DVD or CD in the Sofa computer's disc drive (built in, or on USB) and **Server → Overview**

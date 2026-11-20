@@ -1091,6 +1091,9 @@ class Library:
                 meta["studio"] = meta.get("studio") or scene.get("studio")
                 meta["date"] = meta.get("date") or scene.get("date")
                 meta["performers"] = meta.get("performers") or scene.get("performers") or []
+                own = naming.file_says((media.probe(path, cached_only=True) or {}).get("tags"), saved=side.get("source") == "download")
+                meta["performers"] = meta["performers"] or own["performers"]    # (last: what the file's own tags say)
+                meta["genres"] = meta["genres"] or own["tags"]
                 self._known.update(meta["performers"])
                 if not meta.get("source") and side:
                     meta["source"] = "Saved with the file" if side.get("source") == "nfo" else "Saved from a link"

@@ -68,7 +68,7 @@ def setUpModule():
     for name, admin in (("look-admin", True), ("look-plain", False), ("look-kid", False), ("look-boss", True)):
         if not store.q1("SELECT 1 FROM users WHERE name = ?", name):
             auth.create_user(name, "password123", admin=admin)
-    store.ex("UPDATE users SET adult = 1 WHERE name = 'look-admin'")
+    store.ex("UPDATE users SET adult = 1, adult_ok = 1 WHERE name = 'look-admin'")
     store.ex("UPDATE users SET kids = 1 WHERE name = 'look-kid'")
     Air.home_ip = live._home_ip
 

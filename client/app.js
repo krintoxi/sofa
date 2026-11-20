@@ -435,7 +435,14 @@ function movieCard(m) {
       ${m.adult && (m.duration || m.height) ? `<span class="dur-badge">${esc([quality(m.height), m.duration ? clock(m.duration) : ""].filter(Boolean).join(" · "))}</span>` : ""}
       ${m.adult && favs.has(m.id) ? `<span class="fav-badge">♥</span>` : ""}</span>
     <span class="t1">${esc(m.title)}</span>
-    <span class="t2">${esc([m.year, m.studio].filter(Boolean).join(" · "))}</span></a>`;
+    <span class="t2">${esc((m.adult ? [(m.performers || []).slice(0, 3).join(", "), m.studio, m.performers && m.performers.length ? "" : m.year] : [m.year, m.studio]).filter(Boolean).join(" · "))}</span>${m.adult ? sceneFacts(m) : ""}</a>`;
+}
+/* Under an Adult card: what the file is, at a glance (its size, its sound's languages, subtitles). The picture's size
+   and the length are on the picture already. */
+const sceneLangs = m => { const a = langSet(m); return a.length > 1 ? a.slice(0, 3).map(c => c.toUpperCase()).join(" + ") : a.length ? langName(a[0]) : (m.langs || {}).n > 1 ? m.langs.n + " audio" : ""; };
+function sceneFacts(m) {
+  const l = m.langs || {}, facts = [m.size ? bytes(m.size) : "", sceneLangs(m), (l.s || []).length || m.subs ? "CC" : ""].filter(Boolean);
+  return facts.length ? `<span class="scene-facts">${facts.map(f => `<i>${esc(f)}</i>`).join("")}</span>` : "";
 }
 function collectionCard(name, list) {
   const art = list.find(m => m.poster);
@@ -544,7 +551,7 @@ function heroFor(show, short) {
       : show.poster ? `<img decoding="async" class="hero-bg blur" src="${esc(artSrc(show.poster, 480))}" alt="">` : ""}
     <div class="hero-body">
       ${show.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(show.logo, 720))}" alt="${esc(show.name)}">` : `<h1>${esc(show.name)}</h1>`}
-      <p class="facts">${facts}</p>${short && !show.adult ? langLine(show) : ""}
+      <p class="facts">${facts}</p>${short ? langLine(show) : ""}
       ${show.summary ? `<p class="summary${short ? "" : " clamp"}">${esc(show.summary)}</p>` : ""}
       ${rightsLine(show.rights)}
       <div class="actions">${action}${short ? "" : `<a class="btn" href="#/show/${encodeURIComponent(show.id)}">Episodes</a>`}${show.adult ? "" : listBtn(show.id)}${short && inRows(show) ? forgetBtn(show) : ""}
@@ -933,7 +940,7 @@ function viewMore() {
       ${visitorMode() ? "" : row("#/music", "i-music", "Music", "Albums, artists, stations")}
       ${u.kids || $('[data-nav="live"]').hidden ? "" : row("#/live", "i-live", "Live TV", "Free channels")}
       ${gamesOn() ? row("#/games", "i-games", "Games", "Free, with a keyboard or a controller") : ""}
-      ${u.adult && !$("#navAdult").hidden ? row("#/adult", "i-lock", "Adult", "") : ""}
+      ${(u.adult || u.adult_ask) && !$("#navAdult").hidden ? row("#/adult", "i-lock", "Adult", "") : ""}
       ${row("#/search", "i-search", "Search", "")}
     </div>
     ${visitorMode() ? `<div class="more-list">${row("#/about", "i-info", "About this Sofa", "Privacy, copyright and who to write to")}</div>` : ""}
@@ -1335,7 +1342,7 @@ function viewMovie(id) {
       <div>
         ${m.logo ? `<img decoding="async" class="hero-logo" src="${esc(artSrc(m.logo, 720))}" alt="${esc(m.title)}">` : `<h1>${esc(m.title)}</h1>`}
         ${m.tagline ? `<p class="tagline">${esc(m.tagline)}</p>` : ""}
-        <p class="facts">${facts}</p>${m.adult ? "" : langLine(m)}
+        <p class="facts">${facts}</p>${langLine(m)}
         ${m.performers && m.performers.length ? `<p class="facts"><span>With ${m.adult ? m.performers.map(x => link("performer", x)).join(", ") : esc(m.performers.join(", "))}</span></p>` : ""}
         ${m.adult && m.genres && m.genres.length ? `<p class="tag-cloud small">${m.genres.slice(0, 12).map(g => `<a class="tag-chip" href="#/adult/tag/${encodeURIComponent(g)}">${esc(g)}</a>`).join("")}</p>` : ""}
         ${m.summary ? `<p class="summary">${esc(m.summary)}</p>` : ""}
@@ -1362,8 +1369,44 @@ const ASORTS = {
   newest: ["Newest", (a, b) => b.added - a.added],
   date: ["Release date", (a, b) => (b.date || String(b.year || "")).localeCompare(a.date || String(a.year || ""))],
   name: ["Name", (a, b) => a.title.localeCompare(b.title)],
-  longest: ["Longest", (a, b) => (b.duration || 0) - (a.duration || 0)]
+  longest: ["Longest", (a, b) => (b.duration || 0) - (a.duration || 0)],
+  largest: ["Largest", (a, b) => (b.size || 0) - (a.size || 0)],
+  picture: ["Best picture", (a, b) => (b.height || 0) - (a.height || 0) || (b.size || 0) - (a.size || 0)]
 };
+/* Filters over an Adult list: the picture's size, the length, the sound's language, played or not. Each group shows
+   only the choices this list has, with how many; a group with one choice isn't drawn. They last while the app is open. */
+const aFilter = { pic: "", len: "", lang: "", seen: "" };
+const A_PIC = [["4K", m => m.height >= 2000], ["1080p", m => m.height >= 1000 && m.height < 2000], ["720p", m => m.height >= 700 && m.height < 1000], ["SD", m => m.height > 0 && m.height < 700]];
+const A_LEN = [["Under 10 min", m => m.duration > 0 && m.duration < 600], ["10 to 30", m => m.duration >= 600 && m.duration < 1800], ["Over 30", m => m.duration >= 1800]];
+const A_SEEN = [["Not played", m => !prog(m.id)], ["Started", m => !!prog(m.id) && !isDone(m.id)], ["Played", m => isDone(m.id)]];
+function adultFilters(list) {
+  const langs = new Map();
+  list.forEach(m => langSet(m).forEach(c => langs.set(c, (langs.get(c) || 0) + 1)));
+  const groups = [["pic", "Picture", A_PIC], ["len", "Length", A_LEN],
+    ["lang", "Audio", [...langs].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([c]) => [c, m => langSet(m).includes(c), langName(c)])], ["seen", "Played", A_SEEN]];
+  const tests = [];
+  const bars = groups.map(([key, label, opts]) => {
+    const rows = opts.map(o => [o[0], list.filter(o[1]).length, o[2] || o[0], o[1]]).filter(r => r[1]);
+    const on = rows.find(r => r[0] === aFilter[key]);
+    if (!on) aFilter[key] = "";
+    else tests.push(on[3]);
+    if (rows.length < 2 && !on) return "";
+    return `<div class="sorter" role="group" aria-label="${label}"><button data-afilter="${key}" data-v="" aria-pressed="${!on}">${key === "seen" ? "All" : "Any " + label.toLowerCase()}</button>${rows.map(r =>
+      `<button data-afilter="${key}" data-v="${esc(r[0])}" aria-pressed="${r === on}">${esc(r[2])} <small>${r[1]}</small></button>`).join("")}</div>`;
+  }).join("");
+  return { bars, test: m => tests.every(t => t(m)), on: tests.length };
+}
+/* The same videos as a list, a row each: who is in it and its tags, then the file in columns. */
+function sceneRow(m) {
+  const who = [(m.performers || []).join(", "), m.studio].filter(Boolean).join(" · ");
+  return `<a class="scene-row" href="#/movie/${encodeURIComponent(m.id)}" data-pv="${esc(m.id)}">
+    <span class="frame${m.poster ? "" : " noimg"}">${frameImg(m.poster, m.title, m.title)}${isDone(m.id) ? `<span class="seen-badge">${icon("i-check")}</span>` : ""}${favs.has(m.id) ? `<span class="fav-badge">♥</span>` : ""}</span>
+    <span class="sr-name"><b>${esc(m.title)}</b><small>${esc(who || (m.year ? String(m.year) : ""))}</small></span>
+    <span class="sr-tags">${(m.genres || []).slice(0, 3).map(g => `<i>${esc(g)}</i>`).join("")}</span>
+    <span class="sr-n" data-l="Length" data-q="${esc([quality(m.height) === "HD" ? "1080p" : quality(m.height), m.size ? bytes(m.size) : ""].filter(Boolean).join(" · "))}">${m.duration ? clock(m.duration) : ""}</span><span class="sr-n" data-l="Picture">${esc(quality(m.height) === "HD" ? "1080p" : quality(m.height))}</span>
+    <span class="sr-n" data-l="Size">${m.size ? bytes(m.size) : ""}</span><span class="sr-s" data-l="Audio">${esc(sceneLangs(m))}${(m.langs || {}).s && m.langs.s.length || m.subs ? " · CC" : ""}</span>
+    <span class="sr-s" data-l="Added">${m.added ? esc(dateOf(m.added * 1000)) : ""}</span></a>`;
+}
 function adultGroups(key) {
   const m = new Map();
   adultMovies.forEach(x => {
@@ -1406,15 +1449,120 @@ function adultMatch(x) {
 }
 function adultGrid(list, shows_) {
   const sort = ASORTS[prefs.get("asort", "newest")] ? prefs.get("asort", "newest") : "newest";
-  adultList = list.filter(adultMatch).sort(ASORTS[sort][1]);
+  const found = list.filter(adultMatch), f = adultFilters(found), rows = prefs.get("aview", "grid") === "list";
+  adultList = found.filter(f.test).sort(ASORTS[sort][1]);
   const sh = (shows_ || []).filter(adultMatch);
+  const cards = rows ? `<div class="scene-list"><div class="scene-row sr-head" aria-hidden="true"><span></span><span>Title</span><span>Tags</span><span>Length</span><span>Picture</span><span>Size</span><span>Audio</span><span>Added</span></div>${adultList.map(sceneRow).join("")}</div>` : "";
   return `<div class="grid-tools"><div class="sorter" role="group" aria-label="Sort">${Object.keys(ASORTS).map(k =>
       `<button data-asort="${k}" aria-pressed="${k === sort}">${ASORTS[k][0]}</button>`).join("")}</div>
+      <div class="sorter" role="group" aria-label="Shown as"><button data-aview="grid" aria-pressed="${!rows}">Cards</button><button data-aview="list" aria-pressed="${rows}">List</button></div>
       ${adultList.length ? `<button class="btn" data-adult-play="all">${icon("i-play")}Play all</button><button class="btn" data-adult-play="shuffle">${icon("i-shuffle")}Shuffle</button>` : ""}</div>
+    ${f.bars ? `<div class="grid-tools scene-filters">${f.bars}${f.on ? `<span class="count">${adultList.length} of ${found.length}</span>` : ""}</div>` : ""}
     ${sh.length ? `<h2 class="collection-title">Series</h2><div class="grid">${sh.map(posterCard).join("")}</div>` : ""}
     ${sh.length && adultList.length ? `<h2 class="collection-title">Videos</h2>` : ""}
-    ${grid(adultList.map(movieCard))}
-    ${!adultList.length && !sh.length ? `<p class="count">${adultQuery ? `Nothing matches "${esc(adultQuery)}".` : "Nothing here yet."}</p>` : ""}`;
+    ${rows ? cards : grid(adultList.map(movieCard))}
+    ${!adultList.length && !sh.length ? `<p class="count">${f.on ? "Nothing matches those filters." : adultQuery ? `Nothing matches "${esc(adultQuery)}".` : "Nothing here yet."}</p>` : ""}`;
+}
+/* ---------- the Adult section: a site's top lists, and kept links ----------
+   The 25 most watched videos of a category at a free site, read by Sofa from the site's own API (sofa/toplists.py; a
+   site is off until an admin switches it on). A video plays in the site's own player, in this browser, straight from
+   the site: Sofa never fetches, keeps or passes on the video. Under the player is the link to its page at the site.
+   "Keep" keeps the link (title, picture's address, site, day), so a day's finds stay findable. Addresses here carry a
+   video's id, never its title. */
+const aTop = { sites: null, periods: [], lists: new Map(), kept: null, one: new Map(), polls: 0 };
+const topDraw = () => { if (/^#\/adult\/(top|kept)/.test(location.hash) && !$(".top-player iframe")) rerender(); };
+async function topSites(again) {
+  if ((aTop.sites && !again) || aTop.sitesAsking) return;
+  aTop.sitesAsking = true;
+  try { const d = await api("/api/adult/top"); aTop.sites = d.sites; aTop.periods = d.periods; } catch (e) { aTop.sites = []; }
+  aTop.sitesAsking = false; topDraw();
+}
+async function topList(site, cat, period) {
+  const key = [site, cat, period].join("|"), had = aTop.lists.get(key);
+  if (had && had.asking) return;
+  aTop.lists.set(key, Object.assign(had || { state: "reading", items: [], cats: [] }, { asking: true }));
+  let d = null;
+  try { d = await api("/api/adult/top/" + site + "?cat=" + encodeURIComponent(cat) + "&period=" + encodeURIComponent(period)); } catch (e) {}
+  aTop.lists.set(key, Object.assign(d || { state: "down", items: [], cats: (had || {}).cats || [] }, { asking: false, got: Date.now() }));
+  topDraw();
+  // (Sofa reads the site in the background: asked again a few times until the list is there)
+  if (d && d.state === "reading" && aTop.polls++ < 12) setTimeout(() => { if (location.hash.startsWith("#/adult/top")) { aTop.lists.get(key).got = 0; topDraw(); } }, 1500);
+}
+async function keptLoad() { if (aTop.keptAsking) return; aTop.keptAsking = true; try { aTop.kept = await api("/api/adult/kept"); } catch (e) { aTop.kept = { kept: [], played: [] }; } aTop.keptAsking = false; topDraw(); }
+const isKept = (site, id) => !!(aTop.kept && aTop.kept.kept.some(k => k.site === site && k.id === id));
+const views_ = n => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n || "");
+function topCard(x, i) {
+  const kept = isKept(x.site, x.id);
+  return `<div class="top-item"><a class="card scene" href="#/adult/top/${esc(x.site)}/v/${esc(x.id)}">
+      <span class="frame${x.thumb ? "" : " noimg"}">${x.thumb ? `<img decoding="async" loading="lazy" referrerpolicy="no-referrer" src="${esc(x.thumb)}" alt="">` : `<span class="placeholder">${esc(x.title)}</span>`}
+        ${i !== undefined ? `<span class="rank-badge">${i + 1}</span>` : ""}<span class="dur-badge">${esc([x.quality, x.length ? clock(x.length) : ""].filter(Boolean).join(" · "))}</span></span>
+      <span class="t1">${esc(x.title)}</span>
+      <span class="t2">${esc([x.views ? views_(x.views) + " views" : "", x.rate ? "rated " + x.rate : "", x.site_name || ""].filter(Boolean).join(" · "))}</span></a>
+    <button class="keep-btn" data-keep="${esc(x.site + ":" + x.id)}" aria-pressed="${kept}" title="${kept ? "Kept. Press to let it go" : "Keep the link"}">${kept ? "♥ Kept" : "♡ Keep"}</button></div>`;
+}
+const siteLine = s => `Sofa asks ${esc(s.name)} for its lists and shows them here. A video plays in ${esc(s.name)}'s own player, in your browser, straight from ${esc(s.name)}: Sofa doesn't fetch, keep or pass on the video. <a href="${esc(s.terms)}" target="_blank" rel="noopener noreferrer">${esc(s.name)}'s terms</a>`;
+function viewTop(rest) {
+  if (!aTop.sites) { topSites(); return `<p class="count">One moment…</p>`; }
+  if (!aTop.kept) keptLoad();
+  const live = aTop.sites.filter(x => x.on), admin = session.user.admin;
+  const switches = admin ? `<div class="panel top-sites"><h2>Sites</h2><p class="hint">Off until you switch one on. On, it's here for the people of this Sofa who can see Adult, and for no one else: never visitors, guests or Kids profiles.</p>
+      <ul class="list">${aTop.sites.map(x => `<li><span><b>${esc(x.name)}</b><br><span class="when">${siteLine(x)}</span></span>
+        <button class="mini" data-top-site="${esc(x.id)}" aria-pressed="${x.on}">${x.on ? "On" : "Off"}</button></li>`).join("")}</ul></div>` : "";
+  if (!live.length) return `<p class="count" style="max-width:64ch">${admin ? "The most watched videos of a category at a free site, 25 at a time. No site is switched on." : "No site's top lists are switched on. An admin can do that here."}</p>${switches}`;
+  const site = live.find(x => x.id === rest[0]) || live[0];
+  if (rest[1] === "v" && rest[2]) return viewTopVideo(site, rest[2]);
+  const cat = rest[1] || "", period = (aTop.periods.find(p => p[0] === prefs.get("atop", "week")) || aTop.periods[0] || ["week"])[0];
+  const key = [site.id, cat, period].join("|"), l = aTop.lists.get(key);
+  if (!l || (!l.asking && Date.now() - (l.got || 0) > 10 * 60000) || (l.state === "reading" && !l.asking && !l.got)) { if (!l) aTop.polls = 0; topList(site.id, cat, period); }
+  const d = l || { state: "reading", items: [], cats: [] };
+  const cats = d.cats && d.cats.length ? d.cats : ((aTop.lists.get([site.id, "", period].join("|")) || {}).cats || []);
+  const name = cat ? (cats.find(c => c.slug === cat) || { name: cat }).name : "Everything";
+  return `<div class="grid-tools">${live.length > 1 ? `<div class="sorter" role="group" aria-label="Site">${live.map(x => `<button data-adult-nav="top/${esc(x.id)}" aria-pressed="${x === site}">${esc(x.name)}</button>`).join("")}</div>` : ""}
+      <div class="sorter" role="group" aria-label="Most watched over">${aTop.periods.map(p => `<button data-atop="${esc(p[0])}" aria-pressed="${p[0] === period}">${esc(p[1])}</button>`).join("")}</div>
+      <span class="count">from <a href="${esc(site.home)}" target="_blank" rel="noopener noreferrer">${esc(site.name)}</a>${d.old ? " · the last list it gave: it isn't answering" : ""}</span></div>
+    <div class="top-layout"><nav class="top-cats" aria-label="Categories"><button data-adult-nav="top/${esc(site.id)}" aria-pressed="${!cat}">Everything</button>${cats.map(c =>
+      `<button data-adult-nav="top/${esc(site.id)}/${esc(c.slug)}" aria-pressed="${c.slug === cat}">${esc(c.name)}</button>`).join("")}</nav>
+    <div class="top-main"><h2 class="collection-title">Top ${d.items.length || 25}: ${esc(name)}</h2>
+      ${d.items.length ? `<div class="grid">${d.items.map(topCard).join("")}</div>`
+        : `<p class="count">${d.state === "reading" ? "Asking " + esc(site.name) + "…" : esc(site.name) + " isn't answering just now. Sofa will ask again in a few minutes."}</p>`}</div></div>${switches}`;
+}
+function viewTopVideo(site, id) {
+  const key = site.id + ":" + id, x = aTop.one.get(key);
+  if (x === undefined) {
+    aTop.one.set(key, null);
+    api("/api/adult/top/" + site.id + "/v/" + encodeURIComponent(id)).then(d => { aTop.one.set(key, d); api("/api/adult/kept", { site: site.id, id }).catch(() => {}); },
+      () => aTop.one.set(key, false)).then(topDraw);
+  }
+  if (!x) return `<p class="count">${x === false ? "That video isn't in a list any more. " : "One moment… "}<a href="#/adult/top/${esc(site.id)}">Back to the lists</a></p>`;
+  const kept = isKept(x.site, x.id);
+  return `<div class="top-under"><div><h2>${esc(x.title)}</h2><p class="count">${esc([x.length ? clock(x.length) : "", x.quality].filter(Boolean).join(" · "))} · played by ${esc(site.name)}'s own player, straight from ${esc(site.name)}</p></div>
+      <div class="actions"><a class="btn primary" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Watch on ${esc(site.name)}</a>
+        <button class="btn" data-keep="${esc(key)}" aria-pressed="${kept}">${kept ? "♥ Kept" : "♡ Keep the link"}</button>
+        <a class="btn ghost" href="#/adult/top/${esc(site.id)}">Back to the lists</a></div></div>
+    <div class="top-player"><iframe src="${esc(x.embed)}" title="${esc(site.name)}'s player" allowfullscreen allow="fullscreen; picture-in-picture; encrypted-media" frameborder="0" scrolling="no"></iframe></div>
+    ${TV ? `<p class="count">A site's player is made for a mouse or a finger: on a TV it may not answer the remote.</p>` : ""}`;
+}
+function viewKept() {
+  if (!aTop.sites) { topSites(); return `<p class="count">One moment…</p>`; }
+  if (!aTop.kept) { keptLoad(); return `<p class="count">One moment…</p>`; }
+  const days = new Map();
+  aTop.kept.kept.forEach(k => { const d = new Date(k.at * 1000).toDateString(); if (!days.has(d)) days.set(d, []); days.get(d).push(k); });
+  const today = new Date().toDateString(), yest = new Date(Date.now() - 86400000).toDateString();
+  const dayName = d => d === today ? "Today" : d === yest ? "Yesterday" : dateOf(new Date(d).getTime());
+  return `<p class="count" style="max-width:70ch">Links you kept, by the day you kept them: the title, the picture's address, the site and the day. The videos stay at their sites and play there. One a site removes goes from here too.</p>
+    ${[...days].map(([d, l]) => `<h2 class="collection-title">${esc(dayName(d))} <small class="count">${l.length}</small></h2><div class="grid">${l.map(k => topCard(k)).join("")}</div>`).join("")
+      || `<p class="count">Nothing kept yet. Press Keep on a video in Top lists.</p>`}
+    ${aTop.kept.played.length ? `<h2 class="collection-title">Played lately, not kept <small class="count">forgotten after 30 days</small></h2><div class="grid">${aTop.kept.played.map(k => topCard(k)).join("")}</div>` : ""}`;
+}
+/* Before the Adult section opens for someone the first time: they say themselves that they're 18 or older. An admin's
+   switch lets them be asked; until they answer, the server sends nothing adult to this profile. Asked once, kept
+   with the day (Server, People shows it). */
+function viewAdultAsk() {
+  setGlow("");
+  return `<section class="empty age-ask"><h1>Adults only</h1>
+    <p>The Adult section holds material for adults. Going on, you say that you are <b>18 or older</b> (or of full age where you live, if that is older), and that it is legal for you to see adult material where you are.</p>
+    <p class="actions"><button class="btn primary" data-adult-age="yes">I am 18 or older</button><a class="btn ghost" href="#/">Take me back</a></p>
+    <p class="count">Asked once for each person. Sofa keeps the day you answered.</p></section>`;
 }
 function viewAdult(rest) {
   setGlow("");
@@ -1424,11 +1572,13 @@ function viewAdult(rest) {
   if (tab === "live") return viewLive(true);            // (the Adult section's own channels: Live TV's page, theirs only)
   const cats = (LIB.adult && LIB.adult.categories) || [];
   const here = tab === "category" ? "category/" + arg : tab;
+  if (tab !== "top" && tab !== "kept") aTop.one.clear();
   const chips = [["all", "All"]].concat(cats.map(c => ["category/" + c, c]), [["studios", "Studios"], ["performers", "Performers"], ["tags", "Tags"], ["favorites", "Favorites"]],
-    session.user.kids || $('[data-nav="live"]').hidden ? [] : [["live", "Live TV"]]);
+    session.user.kids || $('[data-nav="live"]').hidden ? [] : [["live", "Live TV"]],
+    session.adult_top || (session.user.admin && !session.demo) ? [["top", "Top lists"]] : [], session.adult_top ? [["kept", "Kept"]] : []);
   const total = adultMovies.length + adultShows.reduce((n, s) => n + s.count, 0);
   let body = "", title = "Adult", sub = plural(total, "video"), hero = "";
-  if (!total) body = `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult videos into the <b>Inbox/XXX</b> folder on the server, or folders of them (keep your own folders like Hentai, Series, Collections: each becomes a category). ${session.user.admin ? `Or use <b>Add a link</b> to save a video from a website.` : ""} Only people allowed on the Server page can see this section; guests and TVs never can.</p>`;
+  if (!total) body = `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult videos into the <b>Inbox/XXX</b> folder on the server, or folders of them (keep your own folders like Hentai, Series, Collections: each becomes a category). ${session.user.admin ? `Or use <b>Send files</b> from this device.` : ""} Only people allowed on the Server page can see this section; guests and TVs never can.</p>`;
   else if (tab === "all" && adultQuery) body = adultGrid(adultMovies, adultShows);
   else if (tab === "all") {
     const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id) && !notAdult(byId.get(id)) && !hiddenFromRows(byId.get(id)))
@@ -1465,6 +1615,10 @@ function viewAdult(rest) {
     const g = [...adultGroups("tag")].sort((a, b) => b[1].length - a[1].length);
     body = g.length ? `<div class="tag-cloud">${g.map(([n, l]) => `<a class="tag-chip" href="#/adult/tag/${encodeURIComponent(n)}">${esc(n)} <small>${l.length}</small></a>`).join("")}</div>`
       : `<p class="count">No tags yet. They come from links you save, .nfo files and ThePornDB.</p>`;
+  } else if (tab === "top" && (session.adult_top || session.user.admin) && !session.demo) {
+    title = "Top lists"; sub = "the most watched at a free site, played by the site"; body = viewTop(rest.slice(1));
+  } else if (tab === "kept" && session.adult_top) {
+    title = "Kept"; sub = "links to videos at their sites"; body = viewKept();
   } else if (tab === "favorites") {
     const mv = adultMovies.filter(x => favs.has(x.id)), people = [...adultGroups("performer")].filter(([n]) => favs.has("perf:" + n));
     body = (people.length ? `<h2 class="collection-title">Performers</h2><div class="grid">${people.map(([n, l]) => groupCard("performer", n, l)).join("")}</div><h2 class="collection-title">Videos</h2>` : "")
@@ -1476,8 +1630,9 @@ function viewAdult(rest) {
     body = (key ? `<p><button class="btn ghost heart-btn" data-like="${esc(key + arg)}" aria-pressed="${favs.has(key + arg)}">♥ ${favs.has(key + arg) ? "In Favorites" : "Add to Favorites"}</button></p>` : "") + adultGrid(list);
   } else return viewMissing();
   return `${hero}<section class="page adult-page${hero ? " under-hero" : ""}"><div class="page-head"><h1>${esc(title)}</h1><span class="count">${esc(sub)}</span>
-      <div class="adult-tools"><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
-      ${session.user.admin ? `<button class="btn" data-add-link="adult">+ Add a link</button><button class="btn" data-send-files="adult">+ Send files</button>` : ""}</div></div>
+      <div class="adult-tools"${tab === "top" || tab === "kept" ? " hidden" : ""}><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
+      ${TV || !prefs.get("cardPreviews", !SLOW_BOX) ? "" : `<button class="btn ghost" data-preview-sound aria-pressed="${clipSound()}" title="Pointing at a video plays a short preview of it: with its sound, or without">${icon(clipSound() ? "i-vol" : "i-mute")}Preview sound ${clipSound() ? "on" : "off"}</button>`}
+      ${session.user.admin ? `<button class="btn" data-send-files="adult">+ Send files</button>` : ""}</div></div>
     <div class="chips" role="group" aria-label="Adult section">${chips.map(c => `<button data-adult-nav="${esc(c[0])}" aria-pressed="${c[0] === here}">${esc(c[1])}</button>`).join("")}</div>
     ${body}</section>`;
 }
@@ -1485,7 +1640,7 @@ function viewAdult(rest) {
    show that has no Spanish), and its subtitles' always. */
 function epLangs(ep) {
   const l = ep.langs, show = ep.show;
-  if (!l || !show || show.adult) return "";
+  if (!l || !show) return "";
   const mine = langSet(ep), all = langSet(show), subs = [...new Set((l.s || []).map(langBase))];
   const differs = mine.length && (mine.length !== all.length || Object.keys((show.langs || {}).some || {}).length);
   return (differs ? `<span${l.by === "name" ? ` title="${esc(FROM_NAME)}"` : ""}>${esc(mine.map(langName).join(" + "))}</span>` : "") +
@@ -2182,11 +2337,10 @@ function sendFilesDialog(adult) {
   zone.addEventListener("dragleave", () => zone.classList.remove("over"));
   zone.addEventListener("drop", e => { e.preventDefault(); zone.classList.remove("over"); add(e.dataTransfer.files); });
 }
-function addLinkDialog(adult, url) {
+function addLinkDialog(url) {
   const d = openDialog(`<h2>Save a video from a link</h2>
-    <p>Paste the address of a video page (YouTube, Vimeo and well over a thousand other sites${session.user.adult ? ", including the free adult video sites" : ""}). Sofa downloads it, names it and files it.</p>
+    <p>Paste the address of a video page (YouTube, Vimeo and well over a thousand other sites). Sofa downloads it, names it and files it. Not adult videos: a video its site marks as for adults only is skipped.</p>
     <form class="link-form"><input name="url" type="url" required placeholder="https://…" value="${esc(url || "")}" aria-label="Link">
-      ${session.user.adult ? `<label class="check"><input type="checkbox" name="adult"${adult ? " checked" : ""}> Put it in the Adult section</label>` : ""}
       <label class="check"><input type="checkbox" name="playlist"> It's a playlist: save every video (up to 50)</label>
       <div class="form-error" role="alert"></div>
       <div class="actions"><button class="btn primary" type="submit">Save it</button><button class="btn ghost" type="button" data-dismiss="1">Cancel</button></div></form>
@@ -2195,7 +2349,7 @@ function addLinkDialog(adult, url) {
   f.addEventListener("submit", async e => {
     e.preventDefault();
     try {
-      const r = await api("/api/admin/downloads", { add: { url: f.url.value, adult: !!(f.adult && f.adult.checked), playlist: f.playlist.checked } });
+      const r = await api("/api/admin/downloads", { add: { url: f.url.value, playlist: f.playlist.checked } });
       closeDialog(); toast(r.note || "Saving it now. It shows up in a few minutes.");
       if (location.hash.startsWith("#/server")) loadAdmin();
     } catch (ex) { $(".form-error", f).textContent = ex.message; }
@@ -3505,10 +3659,10 @@ function srvDownloads(d) {
       ${r.state === "failed" ? `<button class="mini" data-dl-retry="${r.id}">Try again</button>` : ""}
       ${r.state === "queued" || r.state === "working" ? `<button class="mini danger" data-dl-cancel="${r.id}">Stop</button>` : ""}</span></li>`).join("");
   const here = location.origin;
-  const mark = adult => "javascript:location.href=" + JSON.stringify(here + "/#/add?" + (adult ? "adult=1&" : "") + "url=") + "+encodeURIComponent(location.href)";
+  const mark = "javascript:location.href=" + JSON.stringify(here + "/#/add?url=") + "+encodeURIComponent(location.href)";
   return `<div class="panels">
     <div class="panel wide"><h2>Save from a link</h2>
-      <p class="hint">Paste the address of a video page. Sofa downloads it with <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> (free and open source; it knows YouTube, Vimeo and well over a thousand other sites, including the free adult video sites), names it and files it, in Adult if you tick the box. Only save videos you're allowed to keep.</p>
+      <p class="hint">Paste the address of a video page. Sofa downloads it with <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> (free and open source; it knows YouTube, Vimeo and well over a thousand other sites), names it and files it. Not adult videos: nothing from a link goes to the Adult section, and a video its site marks as for adults only is skipped. Only save videos you're allowed to keep.</p>
       ${(x.installing || {}).running ? `<div class="alert"><b><i class="reading-spin small" aria-hidden="true"></i>Installing yt-dlp…</b><span>${esc(x.installing.step || "")}</span></div>`
         : x.tool && x.version ? `<p class="hint">yt-dlp ${esc(x.version)} is ready${x.own ? ", and Sofa keeps it up to date" : ""}.${x.ffmpeg ? "" : " Install ffmpeg too, so picture and sound can be joined."}</p>`
         : `<div class="alert"><b>${x.tool ? "yt-dlp is there but doesn't start." : "One step first: install yt-dlp."}</b><span>Sofa gets the official copy from GitHub and keeps it up to date. If the ready-made Mac version can't run on this computer, it tries the cross-platform one with a newer Python, then Homebrew.</span>
@@ -3518,14 +3672,14 @@ function srvDownloads(d) {
         ${[["", "No browser"], ["safari", "Safari"], ["chrome", "Chrome"], ["firefox", "Firefox"], ["edge", "Edge"], ["brave", "Brave"], ["file", "cookies.txt in data/bin"]].map(o =>
           `<option value="${o[0]}"${(d.settings.ytdlp_cookies || "") === o[0] ? " selected" : ""}>${o[1]}</option>`).join("")}</select></label>
       <p class="hint">For sites that want you signed in or to confirm your age: do that in a browser on the Sofa computer, then pick it here. Safari needs Full Disk Access for the program running Sofa; Firefox works without it.</p>
-      <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>${session.user.adult ? `<button class="btn" data-add-link="adult">+ Add a link to Adult</button>` : ""}
+      <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>
         <button class="btn" data-send-files="normal">Send files from this device</button>
         ${x.rows.some(r => r.state === "done" || r.state === "failed") ? `<button class="btn ghost" data-dl-clear="1">Clear finished</button>` : ""}</div>
       ${x.waiting ? `<p class="hint">Waiting while someone watches a video Sofa is converting.</p>` : ""}
       <ul class="list" style="margin-top:14px">${rows || `<li class="empty-row">Nothing yet.</li>`}</ul></div>
     <div class="panel wide"><h2>Send to Sofa from your browser</h2>
       <p class="hint">Drag a button to your bookmarks bar. On any video page, click it and Sofa's "Save a video" box opens with the link filled in.</p>
-      <div class="actions"><a class="btn" href="${esc(mark(false))}" onclick="return false">Send to Sofa</a>${session.user.adult ? `<a class="btn" href="${esc(mark(true))}" onclick="return false">Send to Sofa (Adult)</a>` : ""}</div></div>
+      <div class="actions"><a class="btn" href="${esc(mark)}" onclick="return false">Send to Sofa</a></div></div>
   </div>`;
 }
 /* Tuners at home (sofa/tuners.py), the guide's sources (sofa/guide.py) and recording's extra minutes (sofa/dvr.py) */
@@ -3656,7 +3810,7 @@ function srvPeople(d) {
     <span class="row-actions"><button class="mini primary" data-signup-yes="${u.id}" data-user-name="${esc(u.name)}">Let in</button>
       <button class="mini" data-signup-yes="${u.id}" data-kids="1" data-user-name="${esc(u.name)}">Let in as Kids</button>
       <button class="mini danger" data-signup-no="${u.id}" data-user-name="${esc(u.name)}">Turn down</button></span></li>`).join("");
-  const users = d.users.filter(u => !u.guest && !u.pending).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}</span></span>
+  const users = d.users.filter(u => !u.guest && !u.pending).map(u => `<li><span><b>${esc(u.name)}</b>${u.admin ? ` <span class="tag ok">admin</span>` : ""}<br><span class="when">${u.seen ? "Last seen " + esc(ago(u.seen)) : "Hasn't signed in yet"}${u.adult && !u.kids ? " · " + (u.adult_ok ? "said 18 or older on " + esc(dateOf(u.adult_ok * 1000)) : "Adult: not opened yet (they're asked if they're 18 or older first)") : ""}</span></span>
     <span class="row-actions">${u.admin ? "" : `<label class="adult-toggle" title="Sees only family titles; no Adult, Live TV or Server"><span>Kids</span><button class="switch small" role="switch" aria-checked="${!!u.kids}" data-user-kids="${u.id}" aria-label="${esc(u.name)} is a Kids profile"></button></label>`}
     ${u.kids ? "" : `<label class="adult-toggle" title="Can see the Adult section"><span>Adult</span><button class="switch small" role="switch" aria-checked="${!!u.adult}" data-user-adult="${u.id}" aria-label="${esc(u.name)} can see the Adult section"></button></label>`}
     <button class="mini" data-user-pass="${u.id}" data-user-name="${esc(u.name)}">New password</button>${u.id !== session.user.id ? `<button class="mini danger" data-user-del="${u.id}" data-user-name="${esc(u.name)}">Remove</button>` : ""}</span></li>`).join("");
@@ -4024,7 +4178,7 @@ function route(animate) {
     const q = new URLSearchParams(location.hash.slice(6));
     history.replaceState(null, "", "#/");
     route();
-    if (session.user.admin) addLinkDialog(q.get("adult") === "1" && session.user.adult, q.get("url") || "");
+    if (session.user.admin) addLinkDialog(q.get("url") || "");
     else toast("Only admins can save videos from links.");
     return;
   }
@@ -4045,6 +4199,7 @@ function route(animate) {
   else if (name === "movies") { html = viewMovies(null, null, null, rest.join("/") || null); nav = "movies"; }
   else if (name === "movie") { const m = byId.get(rest.join("/")); html = viewMovie(rest.join("/")); nav = m && m.adult ? "adult" : "movies"; }
   else if (name === "collection") { html = viewCollection(rest.join("/")); nav = "movies"; }
+  else if (name === "adult" && session.user.adult_ask) { html = viewAdultAsk(); nav = "adult"; }
   else if (name === "adult" && session.user.adult) { html = viewAdult(rest); nav = "adult"; }
   else if (name === "search") { html = viewSearch(rest.join("/")); nav = "search"; }
   else if (name === "mylist") { html = viewMyList(); nav = "mylist"; }
@@ -4113,7 +4268,7 @@ window.sofaRouteNow = () => route();      // the box sets the address and draws 
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-asort],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
+  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-adult-age],[data-preview-sound],[data-keep],[data-atop],[data-top-site],[data-asort],[data-afilter],[data-aview],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
@@ -4170,7 +4325,31 @@ document.addEventListener("click", e => {
   if (t.dataset.msort) { prefs.set("msort", t.dataset.msort); rerender(); return; }
   if (t.dataset.adultTab) { location.hash = "#/adult/" + t.dataset.adultTab; return; }
   if (t.dataset.adultNav) { location.hash = "#/adult/" + t.dataset.adultNav.split("/").map(encodeURIComponent).join("/"); return; }
+  if (t.dataset.previewSound !== undefined) { prefs.set("trailerSound", !clipSound()); rerender(); const b = $("[data-preview-sound]"); if (b) b.focus(); return; }
   if (t.dataset.asort) { prefs.set("asort", t.dataset.asort); rerender(); return; }
+  if (t.dataset.adultAge) {
+    api("/api/adult/age", { ok: true }).then(async () => { await boot(); location.hash = "#/adult"; route(); }, err => toast(err.message));
+    return;
+  }
+  if (t.dataset.atop) { prefs.set("atop", t.dataset.atop); rerender(); const b = $(`[data-atop="${t.dataset.atop}"]`); if (b) b.focus(); return; }
+  if (t.dataset.topSite) {
+    const turnOn = t.getAttribute("aria-pressed") !== "true";
+    api("/api/admin/adult-sites", { site: t.dataset.topSite, on: turnOn }).then(async d => { aTop.sites = d.sites; aTop.lists.clear(); aTop.kept = null; session.adult_top = d.sites.some(x => x.on); rerender(); }, e => alertBox(e.message));
+    return;
+  }
+  if (t.dataset.keep) {
+    e.preventDefault();
+    const [site, id] = t.dataset.keep.split(":"), keep = t.getAttribute("aria-pressed") !== "true";
+    api("/api/adult/kept", { site, id, keep }).then(async () => {
+      try { aTop.kept = await api("/api/adult/kept"); } catch (err) {}
+      document.querySelectorAll(`[data-keep="${t.dataset.keep}"]`).forEach(b => { b.setAttribute("aria-pressed", keep); b.textContent = keep ? "♥ Kept" : b.classList.contains("keep-btn") ? "♡ Keep" : "♡ Keep the link"; });
+      toast(keep ? "Kept: the link, not the video." : "Let go.");
+      if (location.hash.startsWith("#/adult/kept")) rerender();
+    }, err => toast(err.message));
+    return;
+  }
+  if (t.dataset.aview) { prefs.set("aview", t.dataset.aview); rerender(); const b = $(`[data-aview="${t.dataset.aview}"]`); if (b) b.focus(); return; }
+  if (t.dataset.afilter) { aFilter[t.dataset.afilter] = t.dataset.v; rerender(); const b = [...document.querySelectorAll(`[data-afilter="${t.dataset.afilter}"]`)].find(x => x.dataset.v === t.dataset.v); if (b) b.focus(); return; }
   if (t.dataset.adultPlay) {
     const list = t.dataset.adultPlay === "shuffle" ? adultList.slice().sort(() => Math.random() - 0.5) : adultList.slice();
     if (list.length) Player.open(list[0], list); return;
@@ -4230,7 +4409,7 @@ document.addEventListener("click", e => {
     forget(x); closePop(); rerender();
     toast("Removed from Continue watching. It comes back when you watch it again."); return;
   }
-  if (t.dataset.addLink) { addLinkDialog(t.dataset.addLink === "adult"); return; }
+  if (t.dataset.addLink) { addLinkDialog(); return; }
   if ((t.dataset.play || t.dataset.playStart) && Screens.target()) { e.preventDefault(); closePop(); Screens.play(t.dataset.play || t.dataset.playStart, !!t.dataset.playStart); return; }
   if (t.dataset.playStart) { setProgress(t.dataset.playStart, null, true); Player.open(byId.get(t.dataset.playStart)); return; }
   if (t.dataset.srvTab) { location.hash = "#/server/" + t.dataset.srvTab; return; }
@@ -6801,7 +6980,7 @@ async function boot() {
   const visitor = !!session.user.visitor, share = session.share || {};
   document.documentElement.classList.toggle("visitor", visitor);
   $("#navServer").hidden = !session.user.admin;
-  $("#navAdult").hidden = !session.user.adult;
+  $("#navAdult").hidden = !(session.user.adult || session.user.adult_ask);
   $('[data-nav="live"]').hidden = !!session.user.kids || (visitor && !share.live);
   $('[data-nav="music"]').hidden = $('[data-nav="mylist"]').hidden = visitor;
   $("#navGames").hidden = !gamesOn();

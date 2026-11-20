@@ -1,13 +1,17 @@
 """Save from a link: paste the address of a video page, Sofa downloads it and files it.
 
 The downloading is done by yt-dlp (https://github.com/yt-dlp/yt-dlp), the open-source
-tool that understands YouTube and well over a thousand other sites, including the free
-adult tube sites. Sofa can install it for you (Server page, Downloads) and keeps that copy
-up to date, because sites change and yt-dlp follows within days.
+tool that understands YouTube and well over a thousand other sites. Sofa can install it for
+you (Server page, Downloads) and keeps that copy up to date, because sites change and yt-dlp
+follows within days.
+
+Not adult videos: nothing saved from a link goes to the Adult section, and a video its site
+marks as for adults only is skipped (yt-dlp's --age-limit). The free adult sites' terms forbid
+downloading their videos, and they are their owners' copyright.
 
 Each download goes to data/cache/downloads/<id>/ first, so the Inbox never sees half a
 file. yt-dlp also saves a .info.json (title, date, channel, cast, tags) and a thumbnail;
-when it's done the lot moves to Inbox/XXX (adult) or the Inbox, and the organizer files
+when it's done the lot moves to the Inbox, and the organizer files
 it like anything else. One download at a time, and it waits while someone watches a video
 Sofa is converting live.
 """
@@ -275,7 +279,7 @@ def _self_update():
 
 # ---------------------------------------------------------------- the queue
 
-def add(url, adult=False, playlist=False):
+def add(url, playlist=False):
     url = (url or "").strip()
     if net.offline_mode():
         raise ValueError("Sofa is set to work offline, so it can't save videos from links. Switch Offline off under Server, Settings.")
@@ -285,13 +289,13 @@ def add(url, adult=False, playlist=False):
     if store.q1("SELECT 1 FROM downloads WHERE url = ? AND state IN ('queued', 'working')", url):
         raise ValueError("That link is already in the queue.")
     store.ex("INSERT INTO downloads (url, adult, playlist, state, added) VALUES (?,?,?,?,?)",
-             url[:2000], 1 if adult else 0, 1 if playlist else 0, "queued", int(time.time()))
+             url[:2000], 0, 1 if playlist else 0, "queued", int(time.time()))
     _wake.set()
 
 
 def retry(job_id):
     _table()
-    store.ex("UPDATE downloads SET state = 'queued', error = NULL WHERE id = ? AND state = 'failed'", int(job_id))
+    store.ex("UPDATE downloads SET state = 'queued', error = NULL WHERE id = ? AND state = 'failed' AND adult = 0", int(job_id))
     _wake.set()
 
 
@@ -334,11 +338,16 @@ PROGRESS = re.compile(r"\[download\]\s+([\d.]+)%")
 TITLE = re.compile(r"^SOFA-TITLE (.*)$")
 
 
+AGE_LIMIT = 17                    # yt-dlp skips what its site rates above this: the adult sites' videos are 18
+ADULT_GONE = "Sofa no longer saves adult videos from links."
+
+
 def _command(job, folder):
     cmd = _cmd(tool()) + ["--newline", "--no-colors", "--no-mtime", "--windows-filenames",
                           "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b", "--merge-output-format", "mp4",
                           "--write-info-json", "--write-thumbnail", "--convert-thumbnails", "jpg",
                           "--no-simulate", "--no-quiet", "--print", "before_dl:SOFA-TITLE %(title)s",
+                          "--age-limit", str(AGE_LIMIT),     # (a video its site marks for adults only is skipped)
                           "-o", os.path.join(folder, "%(title).150B [%(id)s].%(ext)s")]
     ff = media.tool("ffmpeg")
     if ff:
@@ -371,6 +380,8 @@ def _cookies():
 def explain(error):
     """yt-dlp's last error line, in words."""
     e = error.lower()
+    if "age restricted" in e:
+        return "Its site marks this video as for adults only. Sofa doesn't save those from a link."
     cookies = (config.get("ytdlp_cookies") or "").lower()
     signin = ("The site didn't hand over the video. It usually wants you signed in or to confirm your age "
               "(some countries require that). Do that in a browser on the Sofa computer, then choose that browser "
@@ -435,7 +446,7 @@ def _run_one(job):
         for f in os.listdir(folder):                    # leftovers yt-dlp didn't clean up
             if f.endswith((".part", ".ytdl", ".temp")):
                 os.remove(os.path.join(folder, f))
-        inbox = os.path.join(config.path("inbox"), "XXX") if job["adult"] else config.path("inbox")
+        inbox = config.path("inbox")
         os.makedirs(inbox, exist_ok=True)
         title = store.q1("SELECT title FROM downloads WHERE id = ?", job["id"])["title"] or "Download %d" % job["id"]
         dest = os.path.join(inbox, naming.safe_filename(title)[:100] or "Download")
@@ -449,10 +460,7 @@ def _run_one(job):
         else:
             store.ex("UPDATE downloads SET state = 'done', finished = ?, files = ? WHERE id = ?",
                      int(time.time()), len(videos), job["id"])
-        if job["adult"]:
-            store.log_private("download", "Saved %d video%s from a link to Adult" % (len(videos), "" if len(videos) == 1 else "s"))
-        else:
-            store.log("download", "Saved \"%s\" from a link; it's being filed now" % title, {"url": job["url"]})
+        store.log("download", "Saved \"%s\" from a link; it's being filed now" % title, {"url": job["url"]})
     except InterruptedError:
         store.ex("DELETE FROM downloads WHERE id = ?", job["id"])
         shutil.rmtree(folder, ignore_errors=True)
@@ -460,17 +468,22 @@ def _run_one(job):
         store.ex("UPDATE downloads SET state = 'failed', finished = ?, error = ? WHERE id = ?",
                  int(time.time()), str(exc)[:400], job["id"])
         shutil.rmtree(folder, ignore_errors=True)
-        if job["adult"]:
-            store.log_private("download", "A download for Adult didn't work")
-        else:
-            store.log("download", "Couldn't save from a link: %s" % str(exc)[:200], {"url": job["url"]})
+        store.log("download", "Couldn't save from a link: %s" % str(exc)[:200], {"url": job["url"]})
     finally:
         with _lock:
             _current.clear()
 
 
+def drop_adult_jobs():
+    """Links queued for the Adult section by an older Sofa: not downloaded now. (Rows stay, so the page says why.)"""
+    _table()
+    store.ex("UPDATE downloads SET state = 'failed', finished = ?, error = ? WHERE adult = 1 AND state IN ('queued', 'working')",
+             int(time.time()), ADULT_GONE)
+
+
 def _loop():
     _table()
+    drop_adult_jobs()
     store.ex("UPDATE downloads SET state = 'queued' WHERE state = 'working'")      # interrupted by a restart
     shutil.rmtree(STAGING, ignore_errors=True)
     while True:

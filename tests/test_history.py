@@ -463,6 +463,7 @@ class History(unittest.TestCase):
         cls.admin_id, cls.parent_id, cls.kid_id = (store.q1("SELECT id FROM users WHERE name = ?", n)["id"]
                                                 for n in ("hist-admin", "hist-parent", "hist-kid"))
         auth.set_adult(cls.admin_id, True)
+        auth.confirm_age(cls.admin_id)
         auth.set_kids(cls.kid_id, True)
         kids.choose("m:paper-moons:2014", True)
         kids.choose("s:tidewater", True)
