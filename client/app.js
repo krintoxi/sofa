@@ -1542,6 +1542,78 @@ function viewTopVideo(site, id) {
     <div class="top-player"><iframe src="${esc(x.embed)}" title="${esc(site.name)}'s player" allowfullscreen allow="fullscreen; picture-in-picture; encrypted-media" frameborder="0" scrolling="no"></iframe></div>
     ${TV ? `<p class="count">A site's player is made for a mouse or a finger: on a TV it may not answer the remote.</p>` : ""}`;
 }
+/* Free to keep (sofa/freeadult.py): adult films from the Internet Archive marked public domain or Creative Commons,
+   old enough to be free. Pick a kind and how many; Sofa saves them into Adult, one at a time. An admin's page. */
+const aFree = { cat: prefs.get("freeCat", "vintage"), n: prefs.get("freeN", 25), data: null, key: "", loading: false, timer: 0 };
+const mb = n => n >= 2 ** 30 ? (n / 2 ** 30).toFixed(1) + " GB" : Math.max(1, Math.round(n / 2 ** 20)) + " MB";
+async function freeLoad() {
+  const key = aFree.cat + ":" + aFree.n;
+  if (aFree.loading === key) return;
+  aFree.loading = key;
+  try { aFree.data = await api("/api/adult/free?cat=" + encodeURIComponent(aFree.cat) + "&n=" + aFree.n, undefined, 120000); }
+  catch (e) { aFree.data = { items: [], error: e.message, cats: [], counts: [] }; }
+  aFree.key = key; aFree.loading = false;
+  if (location.hash.startsWith("#/adult/free")) rerender();
+}
+function freeWatch() {                                    // while something saves: its progress, every few seconds
+  clearTimeout(aFree.timer);
+  const c = (aFree.data && aFree.data.saving && aFree.data.saving.counts) || {};
+  if (!(c.queued || c.working)) return;
+  aFree.timer = setTimeout(async () => {
+    if (!location.hash.startsWith("#/adult/free") || document.hidden) return;
+    try { aFree.data.saving = (await api("/api/adult/free?cat=" + encodeURIComponent(aFree.cat) + "&n=" + aFree.n)).saving; } catch (e) {}
+    const box = $("#freeSaving");
+    if (box) { box.outerHTML = freeSaving(); freeWatch(); }
+  }, 3000);
+}
+function freeSaving() {
+  const s = (aFree.data && aFree.data.saving) || { rows: [], counts: {} }, c = s.counts || {};
+  const live = s.rows.filter(r => r.state === "working" || r.state === "queued" || r.state === "failed").slice(0, 12);
+  const head = [c.working || c.queued ? `${(c.working || 0) + (c.queued || 0)} saving` : "", c.done ? `${c.done} saved` : "", c.failed ? `${c.failed} didn't work` : ""].filter(Boolean).join(" · ");
+  if (!head) return `<div id="freeSaving"></div>`;
+  return `<div id="freeSaving" class="free-saving"><h2 class="collection-title">Saving into Adult <small class="count">${esc(head)}</small></h2>
+    <ul class="list">${live.map(r => `<li><span><b>${esc(r.title || "One moment…")}</b><br><span class="when">${r.state === "working" ? `Saving${r.progress ? " · " + Math.round(r.progress * 100) + "%" : "…"}`
+      : r.state === "queued" ? "Waiting its turn" : "Didn't work: " + esc(r.error || "")}</span></span>
+      <span class="row-actions">${r.state === "failed" ? `<button class="mini" data-free-retry="${r.id}">Try again</button>` : ""}</span></li>`).join("")}</ul>
+    ${c.done ? `<p class="count">A saved film is filed in Adult a minute or two after it arrives, with New arrivals.</p>` : ""}</div>`;
+}
+function viewFree() {
+  const key = aFree.cat + ":" + aFree.n, d = aFree.data;
+  if (!d || aFree.key !== key) { freeLoad(); if (!d) return `<p class="count">Asking the Internet Archive… (the first time takes a few seconds)</p>`; }
+  setTimeout(freeWatch, 0);
+  const items = d.items || [], fresh = aFree.key === key;
+  return `<p class="count" style="max-width:76ch">Adult films that anyone may download and keep: from the <a href="https://archive.org" target="_blank" rel="noopener">Internet Archive</a>, marked public domain or Creative Commons by whoever put them there, and old enough to be free (before 1978). Sofa leaves out anything that suggests someone under 18, family, no consent, or drawn characters. Saved films go into Adult, on this server, for you; nothing is posted anywhere.</p>
+    ${d.tool === false ? `<div class="alert"><b>One step first: install yt-dlp.</b><span>Sofa saves through it. <a href="#/server/downloads">Server, Downloads</a> has the button.</span></div>` : ""}
+    <div class="chips" role="group" aria-label="Kind">${(d.cats || []).map(c => `<button data-free-cat="${esc(c.id)}" aria-pressed="${c.id === aFree.cat}">${esc(c.name)}</button>`).join("")}</div>
+    <div class="free-bar"><span class="count">How many</span>${(d.counts || [5, 10, 25, 50]).map(n => `<button class="mini" data-free-n="${n}" aria-pressed="${n === aFree.n}">${n}</button>`).join("")}
+      <button class="btn primary" data-free-save="all"${items.length && fresh ? "" : " disabled"}>Save ${fresh ? items.length : ""} into Adult</button>
+      <span class="count">${fresh ? (items.length ? mb(items.reduce((t, i) => t + i.size, 0)) + " in all" : "") : "Looking…"}</span></div>
+    ${d.error ? `<p class="count">${esc(d.error)}</p>` : ""}
+    ${freeSaving()}
+    ${fresh ? (items.length ? `<ul class="list free-list">${items.map(i => `<li><span><b>${esc(i.title)}</b>${i.year ? ` <span class="count">${esc(i.year)}</span>` : ""}<br>
+      <span class="when">${esc(i.licence)} · ${mb(i.size)} · <a href="${esc(i.page)}" target="_blank" rel="noopener">On the Archive</a></span></span>
+      <span class="row-actions"><button class="mini" data-free-one="${esc(i.url)}">Save</button></span></li>`).join("")}</ul>`
+      : d.error ? "" : `<p class="count">Nothing of this kind is free to keep just now. Try another kind.</p>`) : ""}`;
+}
+document.addEventListener("click", e => {                 // Free to keep: a kind, how many, save them
+  const b = e.target.closest && e.target.closest("[data-free-cat],[data-free-n],[data-free-save],[data-free-one],[data-free-retry]");
+  if (!b) return;
+  if (b.dataset.freeCat) { aFree.cat = b.dataset.freeCat; prefs.set("freeCat", aFree.cat); rerender(); return; }
+  if (b.dataset.freeN) { aFree.n = +b.dataset.freeN; prefs.set("freeN", aFree.n); rerender(); return; }
+  if (b.dataset.freeRetry) {
+    api("/api/admin/downloads", { retry: b.dataset.freeRetry }).then(() => { aFree.key = ""; freeLoad(); }, err => toast(err.message));
+    return;
+  }
+  const one = b.dataset.freeOne;
+  b.disabled = true;
+  api("/api/adult/free", { cat: aFree.cat, n: aFree.n, only: one ? [one] : undefined }).then(r => {
+    aFree.data.saving = r.saving; aFree.data.tool = r.tool;
+    toast(r.queued ? `Saving ${plural(r.queued, "film")} into Adult, one at a time.${r.skipped ? ` ${r.skipped} saved before, skipped.` : ""}`
+      : r.skipped ? "Saved before: nothing new to save." : "Nothing to save.");
+    if (one) b.textContent = "Queued";
+    rerender();
+  }, err => { b.disabled = false; toast(err.message); });
+});
 function viewKept() {
   if (!aTop.sites) { topSites(); return `<p class="count">One moment…</p>`; }
   if (!aTop.kept) { keptLoad(); return `<p class="count">One moment…</p>`; }
@@ -1575,10 +1647,11 @@ function viewAdult(rest) {
   if (tab !== "top" && tab !== "kept") aTop.one.clear();
   const chips = [["all", "All"]].concat(cats.map(c => ["category/" + c, c]), [["studios", "Studios"], ["performers", "Performers"], ["tags", "Tags"], ["favorites", "Favorites"]],
     session.user.kids || $('[data-nav="live"]').hidden ? [] : [["live", "Live TV"]],
-    session.adult_top || (session.user.admin && !session.demo) ? [["top", "Top lists"]] : [], session.adult_top ? [["kept", "Kept"]] : []);
+    session.adult_top || (session.user.admin && !session.demo) ? [["top", "Top lists"]] : [], session.adult_top ? [["kept", "Kept"]] : [],
+    session.user.admin && !session.demo ? [["free", "Free to keep"]] : []);
   const total = adultMovies.length + adultShows.reduce((n, s) => n + s.count, 0);
   let body = "", title = "Adult", sub = plural(total, "video"), hero = "";
-  if (!total) body = `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult videos into the <b>Inbox/XXX</b> folder on the server, or folders of them (keep your own folders like Hentai, Series, Collections: each becomes a category). ${session.user.admin ? `Or use <b>Send files</b> from this device.` : ""} Only people allowed on the Server page can see this section; guests and TVs never can.</p>`;
+  if (!total && !/^(top|kept|free)$/.test(tab)) body = `<p class="count" style="max-width:64ch">Nothing here yet. Drop adult videos into the <b>Inbox/XXX</b> folder on the server, or folders of them (keep your own folders like Hentai, Series, Collections: each becomes a category). ${session.user.admin ? `Or use <b>Send files</b> from this device, or <a href="#/adult/free">Free to keep</a>.` : ""} Only people allowed on the Server page can see this section; guests and TVs never can.</p>`;
   else if (tab === "all" && adultQuery) body = adultGrid(adultMovies, adultShows);
   else if (tab === "all") {
     const cont = Object.keys(progress).filter(id => byId.has(id) && inProgress(id) && !notAdult(byId.get(id)) && !hiddenFromRows(byId.get(id)))
@@ -1617,6 +1690,8 @@ function viewAdult(rest) {
       : `<p class="count">No tags yet. They come from links you save, .nfo files and ThePornDB.</p>`;
   } else if (tab === "top" && (session.adult_top || session.user.admin) && !session.demo) {
     title = "Top lists"; sub = "the most watched at a free site, played by the site"; body = viewTop(rest.slice(1));
+  } else if (tab === "free" && session.user.admin && !session.demo) {
+    title = "Free to keep"; sub = "adult films anyone may save"; body = viewFree();
   } else if (tab === "kept" && session.adult_top) {
     title = "Kept"; sub = "links to videos at their sites"; body = viewKept();
   } else if (tab === "favorites") {
@@ -1630,9 +1705,9 @@ function viewAdult(rest) {
     body = (key ? `<p><button class="btn ghost heart-btn" data-like="${esc(key + arg)}" aria-pressed="${favs.has(key + arg)}">♥ ${favs.has(key + arg) ? "In Favorites" : "Add to Favorites"}</button></p>` : "") + adultGrid(list);
   } else return viewMissing();
   return `${hero}<section class="page adult-page${hero ? " under-hero" : ""}"><div class="page-head"><h1>${esc(title)}</h1><span class="count">${esc(sub)}</span>
-      <div class="adult-tools"${tab === "top" || tab === "kept" ? " hidden" : ""}><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
+      <div class="adult-tools"${tab === "top" || tab === "kept" || tab === "free" ? " hidden" : ""}><input id="adultSearch" type="search" placeholder="Search titles, studios, people, tags" aria-label="Search the Adult section" value="${esc(adultQuery)}">
       ${TV || !prefs.get("cardPreviews", !SLOW_BOX) ? "" : `<button class="btn ghost" data-preview-sound aria-pressed="${clipSound()}" title="Pointing at a video plays a short preview of it: with its sound, or without">${icon(clipSound() ? "i-vol" : "i-mute")}Preview sound ${clipSound() ? "on" : "off"}</button>`}
-      ${session.user.admin ? `<button class="btn" data-send-files="adult">+ Send files</button>` : ""}</div></div>
+      ${session.user.admin ? `<button class="btn" data-add-link="adult">+ Add a link</button><button class="btn" data-send-files="adult">+ Send files</button>` : ""}</div></div>
     <div class="chips" role="group" aria-label="Adult section">${chips.map(c => `<button data-adult-nav="${esc(c[0])}" aria-pressed="${c[0] === here}">${esc(c[1])}</button>`).join("")}</div>
     ${body}</section>`;
 }
@@ -2527,19 +2602,21 @@ function sendFilesDialog(adult) {
   zone.addEventListener("dragleave", () => zone.classList.remove("over"));
   zone.addEventListener("drop", e => { e.preventDefault(); zone.classList.remove("over"); add(e.dataTransfer.files); });
 }
-function addLinkDialog(url) {
+function addLinkDialog(adult, url) {
   const d = openDialog(`<h2>Save a video from a link</h2>
-    <p>Paste the address of a video page (YouTube, Vimeo and well over a thousand other sites). Sofa downloads it, names it and files it. Not adult videos: a video its site marks as for adults only is skipped.</p>
-    <form class="link-form"><input name="url" type="url" required placeholder="https://…" value="${esc(url || "")}" aria-label="Link">
-      <label class="check"><input type="checkbox" name="playlist"> It's a playlist: save every video (up to 50)</label>
+    <p>Paste the address of a video page (YouTube, Vimeo and well over a thousand other sites${session.user.adult ? ", including the free adult video sites" : ""}), or several, one a line. Sofa downloads them one at a time, names them and files them.</p>
+    <form class="link-form"><textarea name="url" rows="3" required placeholder="https://…" aria-label="Links, one a line">${esc(url || "")}</textarea>
+      ${session.user.adult ? `<label class="check"><input type="checkbox" name="adult"${adult ? " checked" : ""}> Put it in the Adult section</label>` : ""}
+      <label class="check"><input type="checkbox" name="playlist"> It's a playlist, a channel or a page of videos: save the first
+        <select name="many" aria-label="How many">${[5, 10, 25, 50].map(n => `<option value="${n}"${n === 25 ? " selected" : ""}>${n}</option>`).join("")}</select></label>
       <div class="form-error" role="alert"></div>
       <div class="actions"><button class="btn primary" type="submit">Save it</button><button class="btn ghost" type="button" data-dismiss="1">Cancel</button></div></form>
-    <p class="hint">Only save videos you're allowed to keep. Progress is on the Server page, under Downloads.</p>`);
+    <p class="hint">Only save videos you're allowed to keep. Progress is on the Server page, under Downloads${session.user.adult ? ", and for Adult under Adult, Free to keep" : ""}.</p>`);
   const f = $(".link-form", d);
   f.addEventListener("submit", async e => {
     e.preventDefault();
     try {
-      const r = await api("/api/admin/downloads", { add: { url: f.url.value, playlist: f.playlist.checked } });
+      const r = await api("/api/admin/downloads", { add: { url: f.url.value, adult: !!(f.adult && f.adult.checked), playlist: f.playlist.checked ? +f.many.value : false } });
       closeDialog(); toast(r.note || "Saving it now. It shows up in a few minutes.");
       if (location.hash.startsWith("#/server")) loadAdmin();
     } catch (ex) { $(".form-error", f).textContent = ex.message; }
@@ -3866,10 +3943,10 @@ function srvDownloads(d) {
       ${r.state === "failed" ? `<button class="mini" data-dl-retry="${r.id}">Try again</button>` : ""}
       ${r.state === "queued" || r.state === "working" ? `<button class="mini danger" data-dl-cancel="${r.id}">Stop</button>` : ""}</span></li>`).join("");
   const here = location.origin;
-  const mark = "javascript:location.href=" + JSON.stringify(here + "/#/add?url=") + "+encodeURIComponent(location.href)";
+  const mark = adult => "javascript:location.href=" + JSON.stringify(here + "/#/add?" + (adult ? "adult=1&" : "") + "url=") + "+encodeURIComponent(location.href)";
   return `<div class="panels">
     <div class="panel wide"><h2>Save from a link</h2>
-      <p class="hint">Paste the address of a video page. Sofa downloads it with <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> (free and open source; it knows YouTube, Vimeo and well over a thousand other sites), names it and files it. Not adult videos: nothing from a link goes to the Adult section, and a video its site marks as for adults only is skipped. Only save videos you're allowed to keep.</p>
+      <p class="hint">Paste the address of a video page. Sofa downloads it with <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noopener">yt-dlp</a> (free and open source; it knows YouTube, Vimeo and well over a thousand other sites, including the free adult video sites), names it and files it, in Adult if you tick the box. Only save videos you're allowed to keep.</p>
       ${(x.installing || {}).running ? `<div class="alert"><b><i class="reading-spin small" aria-hidden="true"></i>Installing yt-dlp…</b><span>${esc(x.installing.step || "")}</span></div>`
         : x.tool && x.version ? `<p class="hint">yt-dlp ${esc(x.version)} is ready${x.own ? ", and Sofa keeps it up to date" : ""}.${x.ffmpeg ? "" : " Install ffmpeg too, so picture and sound can be joined."}</p>`
         : `<div class="alert"><b>${x.tool ? "yt-dlp is there but doesn't start." : "One step first: install yt-dlp."}</b><span>Sofa gets the official copy from GitHub and keeps it up to date. If the ready-made Mac version can't run on this computer, it tries the cross-platform one with a newer Python, then Homebrew.</span>
@@ -3879,14 +3956,14 @@ function srvDownloads(d) {
         ${[["", "No browser"], ["safari", "Safari"], ["chrome", "Chrome"], ["firefox", "Firefox"], ["edge", "Edge"], ["brave", "Brave"], ["file", "cookies.txt in data/bin"]].map(o =>
           `<option value="${o[0]}"${(d.settings.ytdlp_cookies || "") === o[0] ? " selected" : ""}>${o[1]}</option>`).join("")}</select></label>
       <p class="hint">For sites that want you signed in or to confirm your age: do that in a browser on the Sofa computer, then pick it here. Safari needs Full Disk Access for the program running Sofa; Firefox works without it.</p>
-      <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>
+      <div class="actions"><button class="btn primary" data-add-link="normal">+ Add a link</button>${session.user.adult ? `<button class="btn" data-add-link="adult">+ Add a link to Adult</button>` : ""}
         <button class="btn" data-send-files="normal">Send files from this device</button>
         ${x.rows.some(r => r.state === "done" || r.state === "failed") ? `<button class="btn ghost" data-dl-clear="1">Clear finished</button>` : ""}</div>
       ${x.waiting ? `<p class="hint">Waiting while someone watches a video Sofa is converting.</p>` : ""}
       <ul class="list" style="margin-top:14px">${rows || `<li class="empty-row">Nothing yet.</li>`}</ul></div>
     <div class="panel wide"><h2>Send to Sofa from your browser</h2>
       <p class="hint">Drag a button to your bookmarks bar. On any video page, click it and Sofa's "Save a video" box opens with the link filled in.</p>
-      <div class="actions"><a class="btn" href="${esc(mark)}" onclick="return false">Send to Sofa</a></div></div>
+      <div class="actions"><a class="btn" href="${esc(mark(false))}" onclick="return false">Send to Sofa</a>${session.user.adult ? `<a class="btn" href="${esc(mark(true))}" onclick="return false">Send to Sofa (Adult)</a>` : ""}</div></div>
   </div>`;
 }
 /* Tuners at home (sofa/tuners.py), the guide's sources (sofa/guide.py) and recording's extra minutes (sofa/dvr.py) */
@@ -4395,7 +4472,7 @@ function route(animate) {
     const q = new URLSearchParams(location.hash.slice(6));
     history.replaceState(null, "", "#/");
     route();
-    if (session.user.admin) addLinkDialog(q.get("url") || "");
+    if (session.user.admin) addLinkDialog(q.get("adult") === "1" && session.user.adult, q.get("url") || "");
     else toast("Only admins can save videos from links.");
     return;
   }
@@ -4627,7 +4704,7 @@ document.addEventListener("click", e => {
     forget(x); closePop(); rerender();
     toast("Removed from Continue watching. It comes back when you watch it again."); return;
   }
-  if (t.dataset.addLink) { addLinkDialog(); return; }
+  if (t.dataset.addLink) { addLinkDialog(t.dataset.addLink === "adult"); return; }
   if ((t.dataset.play || t.dataset.playStart) && Screens.target()) { e.preventDefault(); closePop(); Screens.play(t.dataset.play || t.dataset.playStart, !!t.dataset.playStart); return; }
   if (t.dataset.playStart) { setProgress(t.dataset.playStart, null, true); Player.open(byId.get(t.dataset.playStart)); return; }
   if (t.dataset.srvTab) { location.hash = "#/server/" + t.dataset.srvTab; return; }

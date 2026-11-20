@@ -511,7 +511,7 @@ first, admins included; guests and TVs never see it.
 - **Browse** by category, studio, performer and tag, keep favorites (♥), search, shuffle,
   and get moving previews on hover or remote focus. All of it works offline, from file
   names and `.nfo` files. A free ThePornDB token adds real covers.
-- **Add** by dropping files or whole folders into `Inbox/XXX`, or with **+ Send files**.
+- **Add** by dropping files or whole folders into `Inbox/XXX`, with **+ Add a link** (Save from a link), or with **+ Send files**.
 - **Pictures from the middle** of each video, in wide cards, unless the video came with its own.
 - **Private:** addresses don't contain titles, and the Server page never names adult titles.
 

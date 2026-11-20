@@ -6,6 +6,25 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.36 (2026-11-19)
+
+Saving adult videos: back, and more of it.
+
+- **Free to keep** (Adult → Free to keep, admins): adult films anyone may download and keep, from the Internet
+  Archive. Pick a kind (vintage and stag films, pin-up and burlesque, exploitation, fetish, or everything) and how
+  many (5, 10, 25 or 50), and **Save into Adult**, or save them one by one. Only films the Archive itself marks adult
+  and its uploader marks public domain or Creative Commons, and old enough to be free (before 1978): a recent studio's
+  film marked "free" isn't the uploader's to give. Anything whose title, subjects, description or file name suggests
+  someone under 18, family, no consent, or drawn characters is left out. What was saved before is skipped. Progress
+  is on the page.
+- **Save from a link saves adult videos again.** 1.5.30 took it out; it's back: **+ Add a link** in Adult, **Put it
+  in the Adult section** in the Save box, **+ Add a link to Adult** and **Send to Sofa (Adult)** on Server →
+  Downloads. Saved adult videos go to `Inbox/XXX` and are filed in Adult; Activity names no title or link. yt-dlp is
+  no longer told to skip videos its site rates for adults.
+- **Several links at once**, one a line, and **how many** of a playlist, a channel or a page of videos to save (5,
+  10, 25 or 50).
+- Only for an admin who can see Adult and said they're 18 or older; never visitors, guests, Kids or a public Sofa.
+- An empty Adult section shows its Top lists, Kept and Free to keep pages instead of only "Nothing here yet".
 
 
 ## 1.5.35 (2026-11-20)

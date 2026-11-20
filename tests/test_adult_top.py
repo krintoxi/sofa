@@ -2,6 +2,9 @@
 lists only (Sofa never asks a site for a video), no request waits on the site, and a site that's down is a quiet page.
 The site here is a stand-in function: nothing in these tests reaches the internet."""
 import json
+import os
+import shutil
+import tempfile
 import threading
 import time
 import unittest
@@ -12,7 +15,7 @@ from http.cookiejar import CookieJar
 from unittest import mock
 
 import tests  # noqa: F401  (sets Sofa up for the tests)
-from sofa import auth, config, fetch, naming, sharing, store, toplists, web
+from sofa import auth, config, fetch, freeadult, naming, sharing, store, toplists, web
 
 API = "https://www.eporner.com/api/v2/"
 
@@ -408,9 +411,9 @@ class EighteenOrOlder(unittest.TestCase):
         auth.set_kids(kid, False)
 
 
-class NoAdultVideosFromALink(unittest.TestCase):
-    """Save from a link doesn't save adult videos: nothing goes to the Adult section, what a site marks for adults
-    only is skipped, and what an older Sofa had queued for Adult isn't downloaded."""
+class AdultVideosFromALink(unittest.TestCase):
+    """Save from a link saves adult videos to the Adult section again (the owner's word, after 1.5.30 took it out),
+    for an admin who may see Adult and said they're 18 or older, and nobody else."""
 
     def setUp(self):
         fetch._table()
@@ -422,49 +425,271 @@ class NoAdultVideosFromALink(unittest.TestCase):
         store.ex("DELETE FROM downloads")
         config.update({"offline": self.before})
 
-    def test_the_downloader_is_told_to_skip_what_is_for_adults_only(self):
+    def test_the_downloader_skips_nothing_for_being_adult(self):
         with mock.patch.object(fetch, "tool", return_value="/usr/bin/yt-dlp"):
             cmd = fetch._command({"url": "https://video.example/watch/1", "playlist": 0}, "/tmp/x")
-        self.assertEqual(cmd[cmd.index("--age-limit") + 1], "17")
+        self.assertNotIn("--age-limit", cmd)
         self.assertEqual(cmd[-2:], ["--", "https://video.example/watch/1"])
-        said = fetch.explain('[download] Skipping "A Title" because it is age restricted')
-        self.assertIn("adults only", said)
 
-    def test_nothing_from_a_link_goes_to_the_adult_section(self):
+    def test_only_someone_who_may_see_adult_and_said_18_puts_one_in_adult(self):
+        httpd = web.Server(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % httpd.server_address[1]
+        try:
+            for name in ("link-admin", "link-grown"):
+                if not store.q1("SELECT 1 FROM users WHERE name = ?", name):
+                    auth.create_user(name, "password123", admin=True)
+            grown = store.q1("SELECT id FROM users WHERE name = 'link-grown'")["id"]
+            auth.set_adult(grown, True)
+            plain, sure = Someone(base, "link-admin"), Someone(base, "link-grown")
+            self.assertEqual(plain.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/1", "adult": True}})[0], 403)
+            self.assertEqual(sure.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/1", "adult": True}})[0], 403)   # (not said 18 yet)
+            auth.confirm_age(grown)
+            self.assertEqual(sure.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/1", "adult": True}})[0], 200)
+            self.assertEqual(plain.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/2"}})[0], 200)
+            self.assertEqual({r["url"][-1]: r["adult"] for r in store.q("SELECT url, adult FROM downloads")}, {"1": 1, "2": 0})
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_a_saved_adult_video_goes_to_inbox_xxx_and_activity_names_nothing(self):
+        store.ex("INSERT INTO downloads (url, adult, playlist, state, added) VALUES (?,1,0,'queued',1)", "https://video.example/secret-title")
+        job = store.q1("SELECT * FROM downloads")
+
+        def fake(cmd, **kw):
+            folder = os.path.dirname(cmd[cmd.index("-o") + 1])
+            with open(os.path.join(folder, "A Secret Title [x1].mp4"), "wb") as f:
+                f.write(b"\0" * 64)
+
+            class P:
+                stdout = iter(["SOFA-TITLE A Secret Title\n"])
+                returncode = 0
+
+                def wait(self, timeout=None):
+                    return 0
+
+                def poll(self):
+                    return 0
+            return P()
+        inbox = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(fetch, "tool", return_value="/usr/bin/yt-dlp"), \
+                    mock.patch.object(fetch.subprocess, "Popen", side_effect=fake), \
+                    mock.patch.object(config, "path", side_effect=lambda k: inbox if k == "inbox" else config.DATA_DIR):
+                fetch._run_one(job)
+            self.assertEqual(os.listdir(os.path.join(inbox, "XXX")), ["A Secret Title"])
+            said = " ".join("%s %s" % (r["message"], r["detail"] or "") for r in store.q("SELECT message, detail FROM activity ORDER BY id DESC LIMIT 3"))
+            self.assertNotIn("Secret", said)
+            self.assertNotIn("secret-title", said)
+        finally:
+            shutil.rmtree(inbox, ignore_errors=True)
+
+    def test_a_film_queued_with_a_title_is_filed_under_it_with_its_year(self):
+        fetch.add("https://archive.org/download/x/A_Free_Ride_(1915).ogv.240p.mp4", adult=True, title="A Free Ride (1915)",
+                  details={"year": "1915", "page": "https://archive.org/details/x", "studio": "Internet Archive", "tags": ["Free to keep"]})
+        job = store.q1("SELECT * FROM downloads")
+
+        def fake(cmd, **kw):
+            folder = os.path.dirname(cmd[cmd.index("-o") + 1])
+            for name, body in (("A_Free_Ride_(1915).ogv.240p [x].mp4", "\0" * 64),
+                               ("A_Free_Ride_(1915).ogv.240p [x].info.json", json.dumps({"title": "A_Free_Ride_(1915).ogv.240p", "upload_date": "20230101"}))):
+                with open(os.path.join(folder, name), "w") as f:
+                    f.write(body)
+
+            class P:
+                stdout = iter(["SOFA-TITLE A_Free_Ride_(1915).ogv.240p\n"])
+
+                def wait(self, timeout=None):
+                    return 0
+            return P()
+        inbox = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(fetch, "tool", return_value="/usr/bin/yt-dlp"), \
+                    mock.patch.object(fetch.subprocess, "Popen", side_effect=fake), \
+                    mock.patch.object(config, "path", side_effect=lambda k: inbox if k == "inbox" else config.DATA_DIR):
+                fetch._run_one(job)
+            got = os.path.join(inbox, "XXX", "A Free Ride (1915)")
+            self.assertEqual(sorted(os.listdir(got)), ["A Free Ride (1915).info.json", "A Free Ride (1915).mp4"])
+            with open(os.path.join(got, "A Free Ride (1915).info.json")) as f:
+                info = json.load(f)
+            self.assertEqual((info["title"], info["release_date"], info["webpage_url"], info.get("upload_date")),
+                             ("A Free Ride (1915)", "19150101", "https://archive.org/details/x", None))
+        finally:
+            shutil.rmtree(inbox, ignore_errors=True)
+
+    def test_a_title_that_is_also_a_category_stays_one_video(self):
+        from sofa import naming
+        self.assertIn("erotic", naming.ADULT_CATEGORIES)
+        store.ex("INSERT INTO downloads (url, adult, playlist, state, added, title) VALUES (?,1,0,'queued',1,'EROTIC')", "https://a.example/e.mp4")
+        job = store.q1("SELECT * FROM downloads")
+
+        def fake(cmd, **kw):
+            with open(os.path.join(os.path.dirname(cmd[cmd.index("-o") + 1]), "e [e].mp4"), "w") as f:
+                f.write("\0" * 64)
+
+            class P:
+                stdout = iter([])
+
+                def wait(self, timeout=None):
+                    return 0
+            return P()
+        inbox = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(fetch, "tool", return_value="/usr/bin/yt-dlp"), \
+                    mock.patch.object(fetch.subprocess, "Popen", side_effect=fake), \
+                    mock.patch.object(config, "path", side_effect=lambda k: inbox if k == "inbox" else config.DATA_DIR):
+                fetch._run_one(job)
+            self.assertEqual(os.listdir(os.path.join(inbox, "XXX")), ["EROTIC (video)"])
+        finally:
+            shutil.rmtree(inbox, ignore_errors=True)
+
+    def test_the_pages_offer_adult_links_again(self):
+        app = open(os.path.join(os.path.dirname(web.__file__), "..", "client", "app.js"), encoding="utf-8").read()
+        for back in ('data-add-link="adult"', "adult=1&", "Put it in the Adult section", "Add a link to Adult"):
+            self.assertIn(back, app)
+
+
+class FreeToKeep(unittest.TestCase):
+    """Free to keep: adult films from the Internet Archive that may be kept (public domain or Creative Commons, before
+    1978), with anything that suggests a minor, family, no consent or drawn characters left out; saved into Adult."""
+
+    DOCS = [
+        {"identifier": "stag1", "title": "Blonde stag film", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/", "year": "1925"},
+        {"identifier": "pinup2", "title": "Vintage striptease", "licenseurl": "https://creativecommons.org/licenses/by/3.0/", "subject": ["pin-up"]},
+        {"identifier": "recent3", "title": "A studio scene", "licenseurl": "https://creativecommons.org/publicdomain/zero/1.0/", "year": "2004"},
+        {"identifier": "vhs4", "title": "Some 1950s VHS tape", "licenseurl": "https://creativecommons.org/publicdomain/zero/1.0/"},
+        {"identifier": "school5", "title": "1950s stag film at the school", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/"},
+        {"identifier": "teen6", "title": "1960s stag film", "description": "with a teen", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/"},
+        {"identifier": "toon7", "title": "Vintage cartoon", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/"},
+        {"identifier": "nolic8", "title": "1930s stag film", "licenseurl": "http://www.example.com/all-rights-reserved"},
+        {"identifier": "step9", "title": "1940s stag film: stepmother", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/"},
+        {"identifier": "pack10", "title": "Public domain films", "licenseurl": "https://creativecommons.org/publicdomain/mark/1.0/", "subject": ["1920s", "silent film"]},
+    ]
+
+    def meta(self, item):
+        doc = next(d for d in self.DOCS if d["identifier"] == item)
+        files = [{"name": item + ".mp4", "format": "h.264", "size": "1000"}, {"name": item + "_512kb.mp4", "format": "512Kb MPEG4", "size": "400"},
+                 {"name": item + ".jpg", "format": "JPEG", "size": "10"}]
+        if item == "pack10":
+            files = [{"name": "A_Free_Ride_(1915).ogv.360p.mp4", "format": "h.264", "size": "500"}, {"name": "A_Free_Ride_(1915).ogv", "format": "Ogg Video", "size": "300"},
+                     {"name": "La_maitresse_d_ecole.ogv.360p.mp4", "format": "h.264", "size": "500"}, {"name": "Massages.mp4", "format": "MPEG4", "size": "700"}]
+        return {"metadata": dict(doc, collection=["no-preview", "other"]), "files": files}
+
+    def setUp(self):
+        self.asked = []
+
+        def reader(url):
+            self.asked.append(url)
+            if url.startswith(freeadult.SEARCH):
+                return {"response": {"docs": self.DOCS}}
+            return self.meta(urllib.parse.unquote(url[len(freeadult.META):]))
+        freeadult.fetch_json = reader
+        freeadult._cache.clear()
+        fetch._table()
+        store.ex("DELETE FROM downloads")
+        self.before = config.get("offline")
+        config.update({"offline": False})
+
+    def tearDown(self):
+        freeadult.fetch_json = None
+        freeadult._cache.clear()
+        store.ex("DELETE FROM downloads")
+        config.update({"offline": self.before})
+
+    def test_only_old_free_films_without_a_hint_of_minors_family_or_force(self):
+        got = freeadult.listing("vintage", 25)["items"]
+        self.assertEqual([i["title"] for i in got], ["Blonde stag film", "Vintage striptease", "A Free Ride (1915)", "Massages"])
+        first = got[0]
+        self.assertEqual((first["licence"], first["url"], first["size"]), ("Public domain", "https://archive.org/download/stag1/stag1.mp4", 1000))
+        self.assertEqual(got[1]["licence"], "CC BY")
+        self.assertTrue(all("ecole" not in i["url"] for i in got))
+        self.assertEqual(sum(1 for u in self.asked if u.startswith(freeadult.META)), 3)   # (what's left out by its listing isn't asked about)
+        freeadult.listing("vintage", 25)
+        self.assertEqual(sum(1 for u in self.asked if u.startswith(freeadult.SEARCH)), 1)   # (kept a while)
+
+    def test_the_words_that_keep_a_film_off(self):
+        for text in ("Teen", "schoolgirl", "step-sister", "Forced", "hidden cam", "Hentai OVA", "barely legal", "Young wife", "first time"):
+            self.assertTrue(freeadult.blocked(text), text)
+        for text in ("Blonde stag film", "Vintage striptease", "Bettie Page", "Massages", "Miss Butterfly"):
+            self.assertFalse(freeadult.blocked(text), text)
+        self.assertFalse(freeadult.old_enough("1985", "stag film"))
+        self.assertFalse(freeadult.old_enough("", "1950s stag film on DVD"))
+        self.assertTrue(freeadult.old_enough("1972", "a film"))
+        self.assertFalse(freeadult.old_enough("", "a film"))
+        self.assertIsNone(freeadult.free_licence("https://creativecommons.org/licenses/by-nc-nd/4.0/x") and None)
+        self.assertEqual(freeadult.free_licence("http://www.example.com/rights"), None)
+
+    def test_saving_queues_them_into_adult_with_their_titles_once(self):
+        got = freeadult.save("vintage", 5)
+        self.assertEqual(got, {"queued": 4, "skipped": 0})
+        rows = store.q("SELECT url, adult, title, state FROM downloads ORDER BY id")
+        self.assertEqual([(r["adult"], r["state"]) for r in rows], [(1, "queued")] * 4)
+        self.assertEqual(rows[0]["title"], "Blonde stag film (1925)")                   # (its year, from the Archive)
+        self.assertEqual(freeadult.save("vintage", 5), {"queued": 0, "skipped": 4})
+        one = "https://archive.org/download/stag1/stag1.mp4"
+        store.ex("DELETE FROM downloads")
+        self.assertEqual(freeadult.save("vintage", 5, {one}), {"queued": 1, "skipped": 0})
+
+    def test_only_an_admin_who_may_see_adult_gets_the_page(self):
+        httpd = web.Server(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % httpd.server_address[1]
+        try:
+            for name, admin in (("free-boss", True), ("free-plain", True), ("free-viewer", False)):
+                if not store.q1("SELECT 1 FROM users WHERE name = ?", name):
+                    auth.create_user(name, "password123", admin=admin)
+            for name in ("free-boss", "free-viewer"):
+                i = store.q1("SELECT id FROM users WHERE name = ?", name)["id"]
+                auth.set_adult(i, True)
+                auth.confirm_age(i)
+            boss, plain, viewer = (Someone(base, n) for n in ("free-boss", "free-plain", "free-viewer"))
+            status, body = boss.call("/api/adult/free?cat=vintage&n=5")
+            self.assertEqual(status, 200)
+            self.assertEqual(len(body["items"]), 4)
+            self.assertEqual(plain.call("/api/adult/free?cat=vintage&n=5")[0], 404)       # (no Adult)
+            self.assertEqual(viewer.call("/api/adult/free?cat=vintage&n=5")[0], 403)      # (not an admin)
+            self.assertEqual(viewer.call("/api/adult/free", {"cat": "vintage", "n": 5})[0], 404)
+            status, body = boss.call("/api/adult/free", {"cat": "vintage", "n": 5})
+            self.assertEqual((status, body["queued"]), (200, 4))
+            self.assertEqual(len(body["saving"]["rows"]), 4)
+            said = " ".join(r["message"] for r in store.q("SELECT message FROM activity ORDER BY id DESC LIMIT 5"))
+            self.assertNotIn("stag", said.lower())
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
+class SeveralLinksAndHowMany(unittest.TestCase):
+    def setUp(self):
+        fetch._table()
+        store.ex("DELETE FROM downloads")
+        self.before = config.get("offline")
+        config.update({"offline": False})
+
+    def tearDown(self):
+        store.ex("DELETE FROM downloads")
+        config.update({"offline": self.before})
+
+    def test_several_links_at_once_and_a_playlist_count(self):
         httpd = web.Server(("127.0.0.1", 0), web.Handler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         try:
             if not store.q1("SELECT 1 FROM users WHERE name = 'link-admin'"):
                 auth.create_user("link-admin", "password123", admin=True)
             admin = Someone("http://127.0.0.1:%d" % httpd.server_address[1], "link-admin")
-            status, body = admin.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/1", "adult": True}})
-            self.assertEqual(status, 400)
-            self.assertIn(b"no longer saves adult videos", body)
-            self.assertEqual(store.q("SELECT 1 FROM downloads"), [])
-            self.assertEqual(admin.call("/api/admin/downloads", {"add": {"url": "https://video.example/watch/1"}})[0], 200)
-            self.assertEqual([r["adult"] for r in store.q("SELECT adult FROM downloads")], [0])
+            status, body = admin.call("/api/admin/downloads", {"add": {"url": "https://a.example/1\n\nhttps://a.example/2\nnot a link", "playlist": 10}})
+            self.assertEqual(status, 200)
+            self.assertIn("1 skipped", body["note"])
+            self.assertEqual([(r["url"], r["playlist"]) for r in store.q("SELECT url, playlist FROM downloads ORDER BY id")],
+                             [("https://a.example/1", 10), ("https://a.example/2", 10)])
         finally:
             httpd.shutdown()
             httpd.server_close()
-        with self.assertRaises(TypeError):
-            fetch.add("https://video.example/watch/2", True, False)        # (there is no "adult" to ask for any more)
-
-    def test_what_an_older_sofa_queued_for_adult_isnt_downloaded(self):
-        for n, (adult, state) in enumerate(((1, "queued"), (1, "working"), (0, "queued"), (1, "done"))):
-            store.ex("INSERT INTO downloads (url, adult, playlist, state, added) VALUES (?,?,0,?,1)", "https://video.example/%d" % n, adult, state)
-        fetch.drop_adult_jobs()
-        rows = {r["url"][-1]: (r["state"], r["error"]) for r in store.q("SELECT url, state, error FROM downloads")}
-        self.assertEqual(rows["0"], ("failed", fetch.ADULT_GONE))
-        self.assertEqual(rows["1"], ("failed", fetch.ADULT_GONE))
-        self.assertEqual((rows["2"][0], rows["3"][0]), ("queued", "done"))
-        fetch.retry(store.q1("SELECT id FROM downloads WHERE url LIKE '%/0'")["id"])
-        self.assertEqual(store.q1("SELECT state FROM downloads WHERE url LIKE '%/0'")["state"], "failed")      # Try again doesn't bring it back
-
-    def test_the_pages_offer_no_adult_link(self):
-        import os
-        app = open(os.path.join(os.path.dirname(web.__file__), "..", "client", "app.js"), encoding="utf-8").read()
-        for gone in ('data-add-link="adult"', "adult=1&", "Put it in the Adult section", "adult video sites", "Add a link to Adult"):
-            self.assertNotIn(gone, app)
+        with mock.patch.object(fetch, "tool", return_value="/usr/bin/yt-dlp"):
+            cmd = fetch._command({"url": "https://a.example/1", "playlist": 10}, "/tmp/x")
+            self.assertEqual(cmd[cmd.index("--playlist-end") + 1], "10")
+            cmd = fetch._command({"url": "https://a.example/1", "playlist": 1}, "/tmp/x")
+            self.assertEqual(cmd[cmd.index("--playlist-end") + 1], "50")
 
 
 class TheFilesOwnTags(unittest.TestCase):

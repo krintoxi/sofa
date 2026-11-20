@@ -47,8 +47,8 @@ How Sofa meets each:
   sandboxing that would stop its advertising. Sofa only accepts a player address that is the site's own and belongs to
   the video's id; anything else in a reply is dropped.
 - **The link back**: "Watch on Eporner" above the player, to the video's own page, and the site's name on the list.
-- **No download**: there is no Save for this site. Sofa's "Save from a link" no longer saves adult videos at all
-  (1.5.30): nothing from a link goes to the Adult section, and a video its site marks for adults only is skipped.
+- **No download from these pages**: Top lists has no Save. Sofa's "Save from a link" (Server → Downloads) is a
+  separate tool, used by an admin, that never touches this API or its player.
 - **Removed videos**: lists are read again every half hour, so a removed video leaves with the next reading; once a
   day Sofa asks `video/status/` about every kept link and deletes the ones the site has removed.
 - **Age**: these pages exist only behind the Adult switch, which an admin sets per person and which is off for

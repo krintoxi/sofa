@@ -62,12 +62,47 @@ folder of several videos).
 - **Already have an `XXX`, `Adult` or `Porn` folder** in `Movies`, `Shows` or
   `~/Entertainment`? Sofa moves its contents into `Adult/`, keeping its folders as categories.
 
-## Not from a link
+## Free to keep
 
-Sofa's **Save from a link** (Server → Downloads) doesn't save adult videos: nothing from a link goes to the Adult
-section, and a video its site marks as for adults only is skipped. The free adult sites' terms forbid downloading
-their videos. Videos an older Sofa saved that way stay where they are, with the details that came with them. To
-watch what's popular at a site without keeping it, see **Top lists** below.
+**Adult → Free to keep** (admins who can see Adult and said they're 18 or older) lists adult films that anyone may
+download and keep, from the [Internet Archive](https://archive.org). Pick a kind (vintage and stag films, pin-up and
+burlesque, exploitation and grindhouse, fetish, or everything) and how many (5, 10, 25 or 50), then **Save into
+Adult**, or **Save** one at a time. They download one after another and are filed in Adult like anything else.
+
+- Only films the Archive marks adult (its own "no preview" collection) and whose uploader marks them public domain
+  or Creative Commons. That is the uploader's word, as on the Archive.
+- Only films old enough to be free: a year before 1978, or a stag, silent or nudie film, and nothing that says VHS,
+  DVD, HD or a later year. Some items are marked "free" for a recent studio's film, which isn't the uploader's to give.
+- Left out: anything whose title, subjects, description or file name suggests someone under 18 (teen, school,
+  young...), family, no consent, a hidden camera, or drawn or animated characters, and trailers. Better to miss a
+  film than keep one of those.
+- What was saved or queued before is skipped. Nothing is posted or shared anywhere; the films stay on your server.
+- Sofa asks the Archive's public search and metadata APIs and keeps the answer six hours.
+
+## Save from a link
+
+The **Server → Downloads** tab, or **+ Add a link** in the Adult tab (admins who can see Adult and said they're 18
+or older). The first time, press **Install yt-dlp**. It's the free, open-source downloader that knows YouTube, Vimeo
+and well over a thousand other sites, including the free adult video sites. Sofa keeps it up to date.
+
+- Tick **Put it in the Adult section** for adult videos. They go to `Inbox/XXX` and are filed in Adult; Activity
+  says only that a video was saved to Adult, never its title or link.
+- Paste **several links**, one a line: they're saved one after another.
+- Tick **It's a playlist** (a playlist, a channel or a page of videos) and choose how many to save: 5, 10, 25 or 50.
+- Sofa also saves the page's title, date, channel, cast and tags with the video, so it arrives with its details
+  already filled in.
+- **Send to Sofa from your browser:** drag "Send to Sofa" or "Send to Sofa (Adult)" from the Downloads tab to your
+  bookmarks bar. On any video page, click it and the box opens with the link filled in.
+
+**"The site didn't hand over the video" / "No video formats found".** The site wants you signed in, or to confirm
+your age (some countries require it for adult sites). Do that in a browser on the Sofa computer, then choose that
+browser under **Use the sign-in from** on the Downloads tab, and try again. Firefox works as it is; Safari needs Full
+Disk Access for the program that runs Sofa. If it still fails, the site may have changed: Sofa updates yt-dlp by
+itself and tries once more.
+
+Most video sites' terms, the adult ones included, don't allow downloading their videos, and a video belongs to whoever
+made it. Saving is for watching at home; what you keep is your call. To watch what's popular at a site without
+keeping it, see **Top lists** below.
 
 ## Browsing
 

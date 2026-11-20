@@ -2239,3 +2239,10 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 .disc-free .actions, .disc-record .actions { margin-top: 6px; align-items: center; }
 .linkish { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
 .disc-hero { height: auto !important; min-height: 0 !important; padding-top: 120px; } .disc-hero .hero-body { position: relative; align-items: flex-start; }
+/* Save from a link: several links, one a line; Free to keep (Adult) */
+.link-form textarea { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; resize: vertical; min-height: 52px; }
+.link-form select { margin-left: 4px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; }
+.free-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+.free-bar .btn.primary { margin-left: 8px; }
+.free-saving { margin: 10px 0 18px; }
+.free-list li .when a { color: inherit; text-decoration: underline; }

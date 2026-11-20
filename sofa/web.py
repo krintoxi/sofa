@@ -24,7 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, together, travel, tuners, uploads)
-from . import details, disc, history, toplists
+from . import details, disc, freeadult, history, toplists
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -914,6 +914,18 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/adult/"):                # a site's top lists and kept links (sofa/toplists.py)
             if not self.adult_only(u):
                 return self.error(404, "Not found.")
+            if path == "/api/adult/free":                # free to keep (sofa/freeadult.py): an admin's, like saving from a link
+                if not u.get("admin"):
+                    return self.error(403, "Only admins can save videos.")
+                cat = (qs.get("cat") or ["vintage"])[0][:20]
+                try:
+                    n = int((qs.get("n") or ["25"])[0])
+                except ValueError:
+                    n = 25
+                return self.json(dict(freeadult.listing(cat, n) if not net.offline_mode() else
+                                      {"cat": cat, "n": n, "items": [], "error": "Sofa is set to work offline."},
+                                      cats=freeadult.cats(), counts=list(freeadult.COUNTS), saving=fetch.adult_saving(),
+                                      tool=bool(fetch.tool())))
             if path == "/api/adult/top":
                 sites = toplists.summary()
                 return self.json({"sites": sites if u.get("admin") else [x for x in sites if x["on"]],
@@ -1470,6 +1482,18 @@ class Handler(BaseHTTPRequestHandler):
             if auth.confirm_age(u["id"]):
                 store.log("account", "%s said they are 18 or older (asked before the Adult section opens)" % u["name"])
             return self.json({"ok": True})
+        if path == "/api/adult/free":                     # save a list of free-to-keep films into Adult
+            if not self.adult_only(u) or not u.get("admin"):
+                return self.error(404, "Not found.")
+            try:
+                only = data.get("only")
+                n = int(data.get("n") or 25)
+                out = freeadult.save(str(data.get("cat") or "vintage"), n,
+                                     set(str(x) for x in only) if isinstance(only, list) else None)
+            except (ValueError, TypeError) as exc:
+                return self.error(400, str(exc))
+            store.log_private("download", "Queued %d free film%s for Adult" % (out["queued"], "" if out["queued"] == 1 else "s"))
+            return self.json(dict(out, saving=fetch.adult_saving(), tool=bool(fetch.tool())))
         if path == "/api/adult/kept":                     # a listed video played (keep absent), kept or let go
             if not self.adult_only(u):
                 return self.error(404, "Not found.")
@@ -1728,9 +1752,24 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json({"ok": True, "installing": True})
                 if data.get("add"):
                     add = data["add"]
-                    if add.get("adult"):                  # (an older page, or a saved "Send to Sofa (Adult)" bookmark)
-                        return self.error(400, fetch.ADULT_GONE)
-                    fetch.add(add.get("url"), bool(add.get("playlist")))
+                    if add.get("adult") and not u.get("adult"):   # (Adult on for them, and said 18 or older: user.adult)
+                        return self.error(403, "Switch the Adult section on for yourself first (Server, People), and say you're 18 or older.")
+                    many = add.get("playlist")
+                    many = int(many) if isinstance(many, int) and not isinstance(many, bool) else bool(many)
+                    urls = [x.strip() for x in str(add.get("url") or "").splitlines() if x.strip()][:50] or [""]
+                    queued, problems = 0, []
+                    for one in urls:                    # (several links at once: one a line)
+                        try:
+                            fetch.add(one, bool(add.get("adult")), many)
+                            queued += 1
+                        except ValueError as exc:
+                            problems.append(str(exc))
+                    if not queued:
+                        raise ValueError(problems[0])
+                    if problems:
+                        return self.json({"ok": True, "note": "Saving %d. %d skipped: %s" % (queued, len(problems), problems[0])})
+                    if len(urls) > 1 and fetch.tool():
+                        return self.json({"ok": True, "note": "Saving %d videos, one at a time." % queued})
                     if not fetch.tool():
                         return self.json({"ok": True, "note": "Queued. Install yt-dlp below so Sofa can start downloading."})
             except ValueError as exc:
