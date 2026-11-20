@@ -1099,6 +1099,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.json(history.status(adult_ok=bool(u.get("adult"))))
         if path == "/api/admin/sharing":
             return self.json(sharing_status())
+        m = re.match(r"^/api/admin/disc/play/([0-9a-f]{20})/([\w.]+)$", path)
+        if m:                                      # a DVD being watched in Sofa's player: its list and its pieces
+            f = disc.play_file(m.group(1), m.group(2))
+            if not f:
+                return self.send_body("Not found", status=404)
+            with open(f, "rb") as fh:
+                data = fh.read()
+            if f.endswith(".m3u8"):                # (from the start, not the end of a list still being written)
+                data = data.replace(b"#EXTM3U\n", b"#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n", 1)
+            return self.send_body(data, "application/vnd.apple.mpegurl" if f.endswith(".m3u8") else "video/mp2t",
+                                  headers={"Cache-Control": "no-cache"})
+        if path == "/api/admin/disc/poster":       # the picture found for the disc in a drive
+            f = None if config.demo_on() else disc.poster((qs.get("drive") or [""])[0])
+            return self.send_file(f, cache="private, max-age=300") if f else self.send_body("Not found", status=404)
+        if path == "/api/admin/disc/playing":      # how watching a disc is going (it stopped: why)
+            return self.json(disc.play_status((qs.get("session") or [""])[0]))
         if path == "/api/admin/disc":              # Save this disc: the drives, what's in them, how a save is going
             return self.json(_disc_status())
         if path == "/api/admin/convert":
@@ -1651,9 +1667,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json({"ok": disc.cancel(str(data.get("job") or ""))})
                 if data.get("action") == "names":
                     return self.json(disc.names(str(data.get("drive") or "")))
+                if data.get("action") == "play":          # watch it in Sofa's player
+                    n = data.get("title")
+                    return self.json(disc.play(str(data.get("drive") or ""), int(n) if str(n or "").isdigit() else None, u["name"]))
+                if data.get("action") == "add_source":    # Save from a folder or disc image
+                    return self.json(disc.add_source(data.get("path")))
+                if data.get("action") == "remove_source":
+                    return self.json(disc.remove_source(str(data.get("drive") or "")))
+                if data.get("action") == "play_stop":
+                    return self.json({"ok": disc.play_stop(str(data.get("session") or "")[:20] or "-")})
             except ValueError as exc:
                 return self.error(400, str(exc))
-            return self.error(400, "Save, stop or names.")
+            return self.error(400, "Save, stop, names or play.")
         if path == "/api/admin/inbox":
             filed = organizer.process_inbox()
             return self.json({"ok": True, "filed": filed})

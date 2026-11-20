@@ -70,6 +70,7 @@ DEFAULTS = {
     # Save this disc (disc.py): look a music CD's names up at MusicBrainz when asked to (no key; what's sent is where
     # the disc's tracks start). Off: only the names the disc itself carries, or the ones typed.
     "disc_lookup": True,
+    "disc_sources": [],           # folders and disc images to save from (Server → Overview, Save from a folder or disc image)
     # Look up movies without a TMDB key on the iTunes Store and Wikipedia.
     "free_movie_lookup": True,
     # Optional: a ThePornDB (theporndb.net) API token adds artwork and details to the Adult section.

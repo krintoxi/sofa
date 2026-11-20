@@ -8,6 +8,14 @@ Each version gets its own release on GitHub, "Sofa Box OS X.Y.Z", with its card 
 A new version: change the number in `deploy/sofa-box/VERSION`, add a section here, and merge to `main`.
 GitHub builds the card and makes the release by itself.
 
+
+## 1.1.102
+
+- **Save this disc from the player.** While a DVD or music CD from Home's disc tile plays, Menu has **Save this
+  disc**: one press, and Sofa on this box saves it (a DVD's film under the name found for it, a CD's tracks as the
+  disc names them) while it goes on playing. A message on the picture says what it's saving, or why it can't.
+- Not on a Pi yet: tried with the box's player code against stand-ins (`tests/test_box_disc.py`).
+
 ## 1.1.100
 
 **Save this disc.** A DVD or CD in the box's USB disc drive, kept in Sofa on this box.

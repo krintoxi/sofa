@@ -2203,3 +2203,32 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 }
 .top-sites .list li > span { min-width: 0; flex: 1; }
 .top-sites .list .when { white-space: normal; display: inline; }
+
+/* ---------- the disc in the drive: Home's card, its page, and Save this disc in the player ---------- */
+.disc-home { padding: 0 var(--pad, 48px); margin: 18px 0 6px; }
+.disc-home-card { display: flex; align-items: center; gap: 18px; padding: 14px 18px; border-radius: 18px; background: var(--slate); border: 1px solid var(--line); color: inherit; text-decoration: none; max-width: 760px; }
+.disc-home-card:hover, .disc-home-card:focus-visible { border-color: var(--amber); }
+.disc-home-card .dh-pic { flex: none; width: 54px; height: 80px; border-radius: 8px; overflow: hidden; display: grid; place-items: center; background: var(--ink); color: var(--mist); }
+.disc-home-card .dh-pic img { width: 100%; height: 100%; object-fit: cover; } .disc-home-card .dh-pic svg { width: 30px; height: 30px; }
+.disc-home-card .dh-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.disc-home-card .dh-text small { color: var(--amber); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; font-size: 12px; }
+.disc-home-card .dh-text b { font: 700 20px/1.2 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.disc-home-card .dh-text span { color: var(--mist); font-size: 14px; }
+.disc-hero .disc-art { display: grid; place-items: center; width: 100%; height: 100%; color: var(--mist); } .disc-hero .disc-art svg { width: 38%; height: 38%; }
+.disc-hero .disc-tracks span { color: var(--soft); }
+.disc-cant { display: grid; gap: 4px; max-width: 60ch; margin: 18px 0 8px; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(255,138,122,.4); background: rgba(255,138,122,.08); }
+.disc-cant b { color: var(--alert); } .disc-cant span { color: var(--soft); line-height: 1.5; }
+.disc-saving { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: center; max-width: 560px; margin: 16px 0 6px; }
+.disc-saving b, .disc-saving .up-bar, .disc-saving span:last-of-type { grid-column: 1; } .disc-saving .mini { grid-column: 2; grid-row: 1 / span 3; }
+.disc-saving > span:not(.up-bar) { color: var(--mist); font-size: 14px; }
+.disc-last { margin: 14px 0 0; color: var(--green); } .disc-last.failed { color: var(--alert); }
+.disc-more { padding-top: 0; } .disc-titles li { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.disc-titles .mini svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.p-save { display: none; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid rgba(255,255,255,.25);
+  background: rgba(255,255,255,.08); color: #fff; font: 600 14px var(--ui); cursor: pointer; }
+.p-save svg { width: 16px; height: 16px; } .p-save:hover { background: rgba(255,255,255,.16); } .p-save:disabled { opacity: .6; cursor: default; }
+.player.is-disc .p-save:not([hidden]) { display: inline-flex; }
+.player.is-disc [data-act="rew"], .player.is-disc [data-act="fwd"] { visibility: visible; }
+.disc-badge { background: var(--amber) !important; }
+.disc-cant .actions { margin-top: 8px; }
+.linkish { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }

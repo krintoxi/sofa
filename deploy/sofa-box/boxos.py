@@ -1071,7 +1071,8 @@ def disc_payload(disc):
     if not url:
         raise ValueError("That disc has files on it: open it in Files.")
     opt = {"dvd": "dvd-device", "bluray": "bluray-device", "cd": "cdrom-device"}[disc["kind"]]
-    return {"url": url, "local": True, "title": disc.get("label") or DISC_NAMES[disc["kind"]], "item": None, "mpv": {opt: disc["dev"]}}
+    return {"url": url, "local": True, "title": disc.get("label") or DISC_NAMES[disc["kind"]], "item": None, "mpv": {opt: disc["dev"]},
+            "disc": {"drive": os.path.basename(disc["dev"]), "kind": disc["kind"]}}
 
 
 # ---------------------------------------------------------------- Bluetooth: remotes, controllers, keyboards, speakers

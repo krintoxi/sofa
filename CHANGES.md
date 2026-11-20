@@ -6,6 +6,29 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+
+## 1.5.32 (2026-11-19)
+
+- **A disc in the drive shows on Home** (admins), and opens a page of its own that looks like a movie's: what it is,
+  found as a library movie is (a DVD labelled RULES_OF_ENGAGEMENT is "Rules of Engagement", 2000, with its poster
+  and summary; a label with a year in it, "Summer at the Lake 2004", gives the year), how long, its chapters, its
+  sound and subtitle tracks, and what else is on the disc.
+- **Save to Movies in one press**, from that page: the disc's film (its longest title) under the name found for it.
+  A music CD: Save to Music, named as the disc's own text has it. The full choices (episodes, another title, the
+  names) are a press further, as before.
+- **Watch the DVD in Sofa's player**: Play on its page, or on any title of it. Sofa reads it as it saves it (the same
+  reader) and converts it as it plays, so it plays in every browser. **Save this disc** is in the player's bar while
+  it plays: one press, and it saves while you watch.
+- **Save from a folder or disc image**: a DVD copied to the computer as a folder (with VIDEO_TS in it), an .iso, or a
+  music CD's .cue. It shows up like a disc in the drive, with its page, Play and Save, and is saved the same way: every
+  sound and subtitle track, the chapters, nothing converted. On the Server page, and on a copy-protected disc's page.
+- **A copy-protected disc's message is shorter**, and points to that: "This DVD is copy-protected, so Sofa can't read
+  its video. Already have it as a folder or a disc image? Save from a folder or disc image files it like any other."
+  Sofa still doesn't decrypt a disc.
+- Tried on the iMac's own drive with a commercial DVD in it (through a copy of this version on another port; the
+  iMac's Sofa wasn't touched): found and named with its poster, every track listed, said to be copy-protected. Play
+  and both kinds of Save were tried on made discs. Not on a Pi, and not on Windows with a real drive.
+
 ## 1.5.30 (2026-11-19)
 
 The Adult section.

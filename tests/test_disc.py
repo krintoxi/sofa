@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import unittest
 from unittest import mock
 
@@ -727,6 +728,34 @@ class OverTheWeb(Discs):
         self.addCleanup(config.update, {"disc_lookup": True})
         self.assertIs(config.get("disc_lookup"), False)
 
+    def test_watching_it_over_the_web(self):
+        image = os.path.join(self.work, "home.iso")
+        disc_images.dvd(image, self.work, clips=((4,),), subtitles=False)
+        self.put_in(image)
+        self.assertEqual(self.other.call("/api/admin/disc", {"action": "play", "drive": "image1"})[0], 403)
+        status, p = self.admin.call("/api/admin/disc", {"action": "play", "drive": "image1"})
+        self.assertEqual((status, p["title"]), (200, 1))
+        import urllib.request
+        req = urllib.request.Request(self.base + p["url"])
+        with self.admin.opener.open(req, timeout=20) as r:
+            text = r.read().decode()
+            self.assertEqual(r.headers["Content-Type"], "application/vnd.apple.mpegurl")
+        self.assertTrue(text.startswith("#EXTM3U\n#EXT-X-START:TIME-OFFSET=0"))
+        with self.admin.opener.open(urllib.request.Request(self.base + p["url"].replace("index.m3u8", "seg00000.ts")), timeout=20) as r:
+            self.assertEqual(r.headers["Content-Type"], "video/mp2t")
+        try:
+            self.other.opener.open(urllib.request.Request(self.base + p["url"]), timeout=20)
+            self.fail("someone who isn't an admin got the disc's stream")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 403)
+        self.assertEqual(self.admin.call("/api/admin/disc/playing?session=" + p["session"])[0], 200)
+        self.assertEqual(self.admin.call("/api/admin/disc", {"action": "play_stop", "session": p["session"]})[1], {"ok": True})
+        try:
+            self.admin.opener.open(urllib.request.Request(self.base + "/api/admin/disc/poster?drive=image1"), timeout=20)
+            self.fail("a picture for a disc nothing was found for")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 404)
+
     def test_the_library_is_read_again_after_a_save(self):
         from sofa import watcher
         with open(os.path.join(os.path.dirname(os.path.abspath(watcher.__file__)), "watcher.py"), encoding="utf-8") as f:
@@ -784,12 +813,197 @@ class ThePage(unittest.TestCase):
             js = f.read()
         for text in ('data-disc-save="${esc(x.id)}">Save this disc</button>', "${discPanel(d.disc)}", 'api("/api/admin/disc", ask)',
                      '{ action: "names", drive: id }', '{ action: "stop", job: stop.dataset.discStop }', 'srvSwitch("disc_lookup"',
-                     "A copy-protected disc can't be saved.", "k.problem || discLine(k)",
+                     "Or save one you have as a folder or a disc image.", "k.problem || discLine(k)",
                      "Asks MusicBrainz, sending only where this disc's tracks start."):
             self.assertIn(text, js)
+        for text in ("function viewDisc(id)", "return banner + discHome() + waiting", 'else if (name === "disc" && session.user.admin)', '{ action: "save", drive: id, quick: true }',
+                     '{ action: "play", drive: id, title: title || null }', "Player.openDisc(p)", 'a === "disc-save" && discOn',
+                     '{ action: "play_stop", session: discOn.session }', "In the disc drive", "This disc is copy-protected"):
+            self.assertIn(text, js)
+        with open(os.path.join(here, "client", "index.html"), encoding="utf-8") as f:
+            self.assertIn('data-act="disc-save"', f.read())
+        # a copy-protected disc's page has neither Play nor Save
+        page = js[js.index("function viewDisc(id)"):js.index("async function discQuick(")]
+        cant = page[page.index("const actions = k.problem ?"):]
+        self.assertLess(cant.index("disc-cant"), cant.index("data-disc-play"))
+        self.assertLess(cant.index(": `<div class=\"actions\">"), cant.index("data-disc-quick"))
         # a disc with a problem (copy-protected, a Blu-ray, nothing on it) gets its reason and no Save
         self.assertIn('${k && !k.problem ? `<button class="btn" data-disc-save=', js)
         self.assertIn("if (x.disc && !x.disc.problem && !d.disc.jobs.some(j => j.state === \"working\")) alerts.push(", js)
+
+
+class WhatTheDiscIs(Discs):
+    """A DVD's page in Sofa looks like a movie's: its label as words, and the film found as a library movie's is."""
+
+    def test_a_label_as_words(self):
+        for label, words in (("RULES_OF_ENGAGEMENT", "Rules of Engagement"), ("DVD_VIDEO", "DVD Video"), ("Star_Wars_IV", "Star Wars IV"), ("THE_MATRIX_WS", "The Matrix"), ("toy.story.2", "Toy Story 2"),
+                             ("LORD_OF_THE_RINGS_DISC_1", "Lord of the Rings"), ("", "")):
+            self.assertEqual(disc.tidy_label(label), words)
+        for generic in ("DVD_VIDEO", "Home Movies", "DISC1", "VIDEO_TS", "20041225", "Untitled"):
+            self.assertTrue(disc.GENERIC.match(disc.tidy_label(generic)), generic)
+        self.assertFalse(disc.GENERIC.match("Rules of Engagement"))
+
+    def test_the_film_is_found_and_its_poster_kept(self):
+        from sofa import metadata
+        config.update({"offline": False})
+        self.addCleanup(config.update, {"offline": True})
+        asked = []
+
+        def movie(title, year):
+            asked.append(title)
+            return {"canonical": "Rules of Engagement", "year": 2000, "summary": "A court-martial.", "poster_url": "https://example.invalid/p.jpg", "source": "Wikipedia"}
+
+        def download(url, dest, replace=False):
+            with open(dest, "wb") as f:
+                f.write(b"\xff\xd8" + b"x" * 600)
+            return True
+        with mock.patch.object(metadata, "movie", movie), mock.patch.object(metadata, "download", download), mock.patch.object(disc, "ART", self.work):
+            g = disc._guess("RULES_OF_ENGAGEMENT")
+            self.assertEqual((g["name"], g["year"], g["summary"], g["poster"], g["found"]), ("Rules of Engagement", 2000, "A court-martial.", True, "Wikipedia"))
+            self.assertEqual(asked, ["Rules of Engagement"])
+            self.assertEqual(disc._guess("DVD_VIDEO")["name"], "DVD Video")                  # (a label that names nothing: not asked)
+            self.assertEqual(asked, ["Rules of Engagement"])
+        config.update({"offline": True})
+        with mock.patch.object(metadata, "movie", movie):
+            self.assertEqual(disc._guess("RULES_OF_ENGAGEMENT"), {"name": "Rules of Engagement", "year": None, "summary": None, "poster": False, "found": False})
+        self.assertEqual(asked, ["Rules of Engagement"])                                     # (offline: nothing asked)
+
+    @unittest.skipUnless(FFMPEG, "ffmpeg makes the DVD's video")
+    def test_one_press_saves_the_film_by_its_name(self):
+        image = os.path.join(self.work, "film.iso")
+        disc_images.dvd(image, self.work, clips=((1,), (3,), (2,)), subtitles=False, label="SUMMER_AT_THE_LAKE")
+        with mock.patch.object(disc, "_guess", lambda label: {"name": "Summer at the Lake", "year": 2004, "summary": None, "poster": False, "found": "Wikipedia"}):
+            (d,) = self.put_in(image)
+        self.assertEqual(d["disc"]["guess"]["name"], "Summer at the Lake")
+        self.assertNotIn("_poster", d["disc"]["guess"])
+        self.assertEqual(disc.quick(disc._known[d["id"]]["disc"]), {"to": "movies", "name": "Summer at the Lake", "year": 2004, "titles": [2]})   # (the longest)
+        job = self.save(d["id"], {"quick": True})
+        self.assertEqual((job["state"], job["name"]), ("done", "Summer at the Lake (2004)"))
+        self.assertEqual(self.tree("movies"), ["Summer at the Lake (2004)/Summer at the Lake (2004).mkv"])
+        self.assertAlmostEqual(float(probe(os.path.join(config.path("movies"), job["name"], job["name"] + ".mkv"))["format"]["duration"]), 3, delta=0.4)
+        with self.assertRaisesRegex(ValueError, "already there"):                          # pressed again: nothing written over
+            disc.save(d["id"], {"quick": True})
+
+    @unittest.skipUnless(FFMPEG, "ffmpeg packs the tracks")
+    def test_one_press_for_a_cd_and_a_data_disc(self):
+        cue, _ = disc_images.audio_cd(self.work, tracks=((1, "One"), (1, "Two")))
+        image = disc_images.iso(os.path.join(self.work, "data.iso"), {"Trip/Beach.mp4": b"v" * 3000}, label="TRIP_2009")
+        cd, data = self.put_in(cue, image)
+        self.assertEqual(disc.quick(disc._known[cd["id"]]["disc"]), {"artist": "The Made Ups", "album": "Made For Testing", "tracks": {"1": "One", "2": "Two"}})
+        self.assertEqual(disc.quick(disc._known[data["id"]]["disc"]), {"name": "Trip 2009"})
+        self.assertEqual(self.save(cd["id"], {"quick": True})["state"], "done")
+        self.assertEqual(self.tree("music"), ["The Made Ups/Made For Testing/01 One.flac", "The Made Ups/Made For Testing/02 Two.flac"])
+
+
+@unittest.skipUnless(FFMPEG, "ffmpeg converts the disc as it plays")
+class FromAFolderOrImage(Discs):
+    """Save from a folder or disc image: a DVD copied to the computer, an .iso, a CD's .cue, saved as a disc is."""
+
+    def test_add_save_and_take_away(self):
+        folder = os.path.join(self.work, "Summer at the Lake")
+        disc_images.dvd(folder, self.work, clips=((2,),), subtitles=False, folder=True) if FFMPEG else os.makedirs(os.path.join(folder, "VIDEO_TS"))
+        before = config.get("disc_sources")
+        self.addCleanup(config.update, {"disc_sources": before})
+        patch = mock.patch.dict(os.environ, {"SOFA_DISCS": ""})
+        patch.start()
+        self.addCleanup(patch.stop)
+        r = disc.add_source(os.path.join(folder, "VIDEO_TS"))                              # (VIDEO_TS itself: its folder)
+        self.assertEqual(config.get("disc_sources"), [folder])
+        self.assertEqual(disc.add_source(folder), r)                                        # (twice: once)
+        self.assertEqual(config.get("disc_sources"), [folder])
+        (d,) = [x for x in disc._made_drives() if x["id"] == r["drive"]]
+        self.assertEqual((d["name"], d["kind"], d["copy"]), ("Folder", "dvd", True))
+        if FFMPEG:
+            with mock.patch.object(disc, "drives", disc._made_drives):
+                (shown,) = disc.status(wait=60)["drives"]
+                self.assertTrue(shown["copy"])
+                job = self.save(r["drive"], {"quick": True})
+            self.assertEqual(job["state"], "done")
+            self.assertEqual(self.tree("movies"), ["Summer at the Lake/Summer at the Lake.mkv"])
+        self.assertEqual(disc.remove_source(r["drive"]), {"ok": True})
+        self.assertEqual(config.get("disc_sources"), [])
+        self.assertEqual(disc.remove_source(r["drive"]), {"ok": False})
+
+    def test_what_it_takes(self):
+        for path, why in (("/nowhere/at/all", "nothing at"), (self.work, "no VIDEO_TS"), (__file__, "an .iso")):
+            with self.assertRaisesRegex(ValueError, why):
+                disc.add_source(path)
+        iso = disc_images.iso(os.path.join(self.work, "a.iso"), {"VIDEO_TS/VIDEO_TS.IFO": b"x"})
+        self.assertEqual(disc.source_path(iso), iso)
+
+    def test_a_copy_protected_disc_points_there(self):
+        self.assertIn("Save from a folder or disc image", disc.PROTECTED)
+        self.assertIn("Save from a folder or disc image", disc.WONT_READ)
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn('${k.protected ? `<div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}', js)
+        self.assertIn('{ action: "add_source", path: form.elements.path.value }', js)
+
+
+@unittest.skipUnless(FFMPEG, "ffmpeg converts the disc as it plays")
+class WatchingTheDisc(Discs):
+    """Play: a DVD's title in Sofa's player, read by the one reader and converted as it plays."""
+
+    def test_it_plays_and_stops(self):
+        image = os.path.join(self.work, "home.iso")
+        disc_images.dvd(image, self.work, clips=((6,), (2, 2)), subtitles=False)
+        (d,) = self.put_in(image)
+        read = []
+        real = dvd.read_title
+
+        def counted(*a, **k):
+            read.append(1)
+            return real(*a, **k)
+        with mock.patch.object(dvd, "read_title", counted):
+            p = disc.play(d["id"])
+        self.assertEqual(read, [1])                                                          # (through the one reader)
+        self.assertEqual((p["title"], p["seconds"], p["name"], p["drive"]), (1, 6.0, "Home Movies", d["id"]))
+        self.assertTrue(p["url"].startswith("/api/admin/disc/play/") and p["url"].endswith("/index.m3u8"))
+        end = time.time() + 30
+        while time.time() < end and disc.play_status(p["session"])["playing"]:
+            time.sleep(0.2)
+        listing = open(disc.play_file(p["session"], "index.m3u8")).read()
+        self.assertIn("#EXT-X-ENDLIST", listing)
+        seg = disc.play_file(p["session"], "seg00000.ts")
+        got = probe(seg)
+        self.assertEqual(sorted(x["codec_name"] for x in got["streams"]), ["aac", "h264"])
+        for name in ("../../etc/passwd", "index.m3u8x", "seg1.ts", "x.mkv"):
+            self.assertIsNone(disc.play_file(p["session"], name))
+        self.assertIsNone(disc.play_file("0" * 20, "index.m3u8"))
+        self.assertTrue(disc.play_stop(p["session"]))
+        self.assertFalse(os.path.exists(os.path.dirname(seg)))                               # nothing left behind
+        self.assertIsNone(disc.play_file(p["session"], "index.m3u8"))
+        p2 = disc.play(d["id"], 2)
+        self.assertEqual((p2["title"], p2["seconds"]), (2, 4.0))
+        disc.play(d["id"], 1)                                                                # one at a time: the last one goes
+        self.assertEqual(disc.play_status(p2["session"]), {"playing": False})
+        disc.play_stop()
+        with self.assertRaisesRegex(ValueError, "isn't on the disc"):
+            disc.play(d["id"], 9)
+
+    def test_a_copy_protected_disc_isnt_played_either(self):
+        image = os.path.join(self.work, "film.iso")
+        disc_images.dvd(image, self.work, clips=((2,),), protected=True, subtitles=False)
+        (d,) = self.put_in(image)
+        with mock.patch.object(subprocess, "Popen") as popen:
+            with self.assertRaisesRegex(ValueError, "copy-protected, so Sofa can't read its video"):
+                disc.play(d["id"])
+            self.assertFalse(popen.called)
+        with mock.patch.object(dvd, "sample", return_value=None):                            # scrambled only further in
+            self.forget()
+            (d,) = self.put_in(image)
+        p = disc.play(d["id"]) if False else None
+        try:
+            p = disc.play(d["id"])
+        except ValueError as exc:
+            self.assertIn("copy-protected", str(exc))                                        # (caught before anything was made)
+        if p:
+            end = time.time() + 20
+            while time.time() < end and disc.play_status(p["session"])["playing"]:
+                time.sleep(0.1)
+            self.assertIn("copy-protected", disc.play_status(p["session"])["error"] or "")
+            disc.play_stop()
 
 
 class PlacingAFile(unittest.TestCase):

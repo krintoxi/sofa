@@ -793,7 +793,7 @@ function viewHome() {
   const waiting = session.user.admin && session.waiting ? `<section class="app-offer"><div><b>${session.waiting === 1 ? "Someone" : session.waiting + " people"} asked for an account</b>
     <span>They're waiting for you in Server → People.</span></div><div class="row-actions"><a class="btn primary" href="#/server/people">Have a look</a></div></section>` : "";
   const shown = order.filter(id => !hidden.has(id)), banner = shown[0] === "banner" ? rows.banner() : "";
-  return banner + waiting + appOffer() + boxGuestOffer() + shown.filter(id => id !== "banner").map(id => rows[id]()).join("") +   // notes under the banner (it reaches up under the header)
+  return banner + discHome() + waiting + appOffer() + boxGuestOffer() + shown.filter(id => id !== "banner").map(id => rows[id]()).join("") +   // notes under the banner (it reaches up under the header)
     (session.user.guest ? "" : `<div class="home-edit"><button class="btn ghost" data-home-edit="1">${icon("i-palette")}Arrange Home</button></div>`);
 }
 /* What's on Home, and in which order: each profile's own (on every screen), or Sofa's. The banner stays
@@ -2182,13 +2182,13 @@ function discLine(x) {
   return "";
 }
 function discPanel(dd) {
-  if (!dd || (!dd.drives.length && !dd.jobs.length)) return "";
+  if (!dd) return "";
   const busy = dd.jobs.some(j => j.state === "working");
   const drives = dd.drives.map(x => {
     const k = x.disc;
     const what = x.state === "empty" ? "No disc in it." : x.state === "unread" ? "There's a disc in it that this computer can't read." : !k ? "Reading the disc…"
       : k.problem || discLine(k);
-    return `<li class="disc-row${k && k.problem ? " cant" : ""}"><span><b>${esc(x.state === "disc" ? (x.label || DISC_KIND[x.kind] || "Disc") : x.name)}</b>
+    return `<li class="disc-row${k && k.problem ? " cant" : ""}"><span><b>${x.state === "disc" && k ? `<a href="#/disc/${encodeURIComponent(x.id)}">${esc(discName(x))}</a>` : esc(x.state === "disc" ? (x.label || DISC_KIND[x.kind] || "Disc") : x.name)}</b>
       <small>${x.state === "disc" && x.kind ? esc(DISC_KIND[x.kind]) + " · " : ""}${esc(what)}</small></span>
       ${k && !k.problem ? `<button class="btn" data-disc-save="${esc(x.id)}"${busy ? " disabled" : ""}>Save</button>` : ""}</li>`;
   }).join("");
@@ -2202,11 +2202,12 @@ function discPanel(dd) {
       <span class="up-note">${note}${(j.notes || []).map(n => "<br>" + esc(n)).join("")}</span>
       ${j.state === "working" ? `<button class="mini" data-disc-stop="${esc(j.id)}">Stop</button>` : ""}</li>`;
   }).join("");
-  return `<div class="panel wide disc-panel"><h2>Disc drive</h2><p class="hint">Put a DVD or CD in this computer's drive to save it to your library. A copy-protected disc can't be saved.</p>
-    <ul class="list">${drives}</ul>${jobs ? `<ul class="upload-list disc-jobs">${jobs}</ul>` : ""}</div>`;
+  return `<div class="panel wide disc-panel"><h2>Disc drive</h2><p class="hint">Put a DVD or CD in this computer's drive to save it to your library. Or save one you have as a folder or a disc image.</p>
+    <ul class="list">${drives}</ul>${jobs ? `<ul class="upload-list disc-jobs">${jobs}</ul>` : ""}
+    <div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div></div>`;
 }
 function saveDiscDialog(id) {
-  const x = ((adminData.disc || {}).drives || []).find(v => v.id === id), k = x && x.disc;
+  const x = (((adminData && adminData.disc) || discNow || {}).drives || []).find(v => v.id === id), k = x && x.disc;
   if (!k || k.problem) return;
   const tidy = t => String(t || "").replace(/[_.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase());
   let body;
@@ -2214,7 +2215,7 @@ function saveDiscDialog(id) {
     body = `<div class="disc-two"><label class="field"><span>Artist</span><input name="artist" maxlength="120" value="${esc(k.artist)}" placeholder="Who it's by"></label>
       <label class="field"><span>Album</span><input name="album" maxlength="120" value="${esc(k.album)}" placeholder="What it's called"></label>
       <label class="field small"><span>Year</span><input name="year" inputmode="numeric" maxlength="4" placeholder="optional"></label></div>
-      ${adminData.disc.lookup ? `<div class="actions disc-look"><button type="button" class="btn" data-disc-names="1">Look the names up</button><span class="hint">Asks MusicBrainz, sending only where this disc's tracks start.</span></div>` : ""}
+      ${((adminData && adminData.disc) || discNow || {}).lookup ? `<div class="actions disc-look"><button type="button" class="btn" data-disc-names="1">Look the names up</button><span class="hint">Asks MusicBrainz, sending only where this disc's tracks start.</span></div>` : ""}
       <ul class="disc-pick">${k.tracks.map(t => `<li><label class="check"><input type="checkbox" name="t${t.n}" checked><span class="n">${t.n}</span></label>
         <input class="disc-title" name="title${t.n}" maxlength="150" value="${esc(t.title)}" placeholder="Track ${t.n}" aria-label="Track ${t.n}'s name"><span class="when">${clock(t.seconds)}</span></li>`).join("")}</ul>
       <p class="hint">Each track becomes a FLAC file, with every bit of the disc's sound, in Music.</p>`;
@@ -2277,17 +2278,141 @@ function saveDiscDialog(id) {
                            titles: [...form.querySelectorAll("input[name=title]:checked")].map(el => +el.value) });
     } else ask.name = val("name");
     const go = $("button[type=submit]", form); go.disabled = true;
-    try { await api("/api/admin/disc", ask); closeDialog(); toast("Saving the disc. You can leave this page: it carries on."); adminData = null; loadAdmin(); }
+    try { await api("/api/admin/disc", ask); closeDialog(); toast("Saving the disc. You can leave this page: it carries on.");
+      loadDiscNow(); if (location.hash.startsWith("#/server")) { adminData = null; loadAdmin(); } }
     catch (ex) { say(ex.message); go.disabled = false; }
   });
 }
 document.addEventListener("click", async e => {
   const save = e.target.closest && e.target.closest("[data-disc-save]"), stop = e.target.closest && e.target.closest("[data-disc-stop]");
-  if (save && adminData) return saveDiscDialog(save.dataset.discSave);
+  if (save && (adminData || discNow)) return saveDiscDialog(save.dataset.discSave);
   if (stop && confirm("Stop saving this disc? What's already saved is kept.")) {
     try { await api("/api/admin/disc", { action: "stop", job: stop.dataset.discStop }); } catch (ex) { toast(ex.message); }
     loadAdmin();
   }
+});
+
+/* ---------- the disc in the drive, as a page of its own (admins) ----------
+   Put a disc in and Home shows it, and its page looks like a movie's: what it is (looked up as a library movie is),
+   how long, its sound and subtitles, with Play (in Sofa's player, converted as it plays) and Save to Movies in one
+   press. While it plays, the player has Save this disc too. A copy-protected disc is said to be one: Sofa neither
+   plays nor saves it. */
+let discNow = null, discNowKey = "", discTimer = 0, discStarted = false;
+async function loadDiscNow() {
+  clearTimeout(discTimer);
+  if (!session || !session.user || !session.user.admin) return;
+  if (!document.hidden) {
+    try { discNow = await api("/api/admin/disc"); } catch (e) { discNow = null; }
+    const key = JSON.stringify(((discNow || {}).drives || []).map(x => [x.id, x.state, x.label, !!x.disc, x.disc && x.disc.problem]).concat(
+      ((discNow || {}).jobs || []).map(j => [j.id, j.state, j.state === "working" ? Math.round(j.done / (j.total || 1) * 20) : 0])));
+    if (key !== discNowKey) {
+      discNowKey = key;
+      const h = location.hash;
+      if ((h === "" || h === "#/" || h.startsWith("#/disc")) && !Player.isOpen() && !document.querySelector(".dialog-scrim")) rerender();
+    }
+  }
+  const busy = ((discNow || {}).drives || []).some(x => x.reading) || ((discNow || {}).jobs || []).some(j => j.state === "working");
+  discTimer = setTimeout(loadDiscNow, busy ? 2500 : 10000);
+}
+const discName = x => (x.disc && x.disc.guess && x.disc.guess.name) || (x.disc && x.disc.album) || x.label || DISC_KIND[x.kind] || "Disc";
+const discPoster = x => x.disc && x.disc.guess && x.disc.guess.poster ? "/api/admin/disc/poster?drive=" + encodeURIComponent(x.id) + "&v=" + encodeURIComponent(x.label || "") : "";
+const discJob = () => ((discNow || {}).jobs || []).filter(j => j.state === "working")[0] || null;
+function discHome() {
+  const x = ((discNow || {}).drives || []).find(v => v.state === "disc" && v.disc);
+  if (!x || TV && !session.user.admin) return "";
+  const job = discJob(), pic = discPoster(x), k = x.disc;
+  return `<section class="disc-home"><a class="disc-home-card" href="#/disc/${encodeURIComponent(x.id)}">
+    <span class="dh-pic">${pic ? `<img decoding="async" src="${esc(pic)}" alt="">` : icon("i-disc")}</span>
+    <span class="dh-text"><small>In the disc drive</small><b>${esc(discName(x))}</b>
+      <span>${job ? esc(job.step) + " · " + Math.round(job.done / (job.total || 1) * 100) + "%" : k.problem ? (k.protected ? "Copy-protected: Sofa can't play or save it" : esc(k.problem)) : esc(DISC_KIND[x.kind] + " · " + discLine(k))}</span></span>
+    <span class="btn">Open</span></a></section>`;
+}
+function viewDisc(id) {
+  setGlow("");
+  if (!discNow) { loadDiscNow(); return `<section class="page"><p class="count">Looking at the disc drive…</p></section>`; }
+  const drives = discNow.drives || [], x = drives.find(v => v.id === id) || drives.find(v => v.state === "disc");
+  if (!x || x.state !== "disc") return `<section class="page"><h1>Disc drive</h1><p class="count">${drives.length ? "There's no disc in the drive now. Put a DVD or CD in and it shows up here." : "This computer has no disc drive that Sofa can see."}</p></section>`;
+  const k = x.disc;
+  if (!k) return `<section class="page"><h1>${esc(x.label || "Disc")}</h1><p class="count">Reading the disc…</p></section>`;
+  const g = k.guess || {}, pic = discPoster(x), job = discJob(), dvd = k.kind === "dvd";
+  const main = dvd ? (k.titles || []).filter(t => !t.cant).sort((a, b) => b.seconds - a.seconds)[0] : null;
+  const len = dvd ? (main || k.titles[0] || {}).seconds : k.kind === "cd" ? k.tracks.reduce((n, t) => n + t.seconds, 0) : 0;
+  const facts = [g.year ? `<span><b>${esc(g.year)}</b></span>` : "", `<span class="cert">${esc(DISC_KIND[k.kind])}</span>`,
+    len ? `<span>${esc(longTime(len))}</span>` : "", main && main.chapters.length > 1 ? `<span>${plural(main.chapters.length, "chapter")}</span>` : "",
+    k.kind === "cd" ? `<span>${plural(k.tracks.length, "track")}</span>` : "", k.kind === "cd" && k.artist ? `<span>${esc(k.artist)}</span>` : "",
+    k.kind === "data" ? `<span>${plural(k.files.length, "file")}, ${esc(bytes(k.files.reduce((n, f) => n + f.size, 0)))}</span>` : ""].join("");
+  const named = list => list.map(a => a.name || "unlabelled").join(", ");
+  const tracks = main ? `<p class="facts disc-tracks">${main.audio.length ? `<span>Sound: ${esc(named(main.audio))}</span>` : ""}
+    ${main.subs.length ? `<span>Subtitles: ${esc(named(main.subs))}</span>` : ""}</p>` : "";
+  const to = { dvd: "Movies", cd: "Music", data: "the Inbox" }[k.kind];
+  const actions = k.problem ? `<div class="disc-cant"><b>${k.protected ? "This disc is copy-protected" : "This disc can't be saved"}</b><span>${esc(k.problem)}</span>
+      ${k.protected ? `<div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}</div>`
+    : `<div class="actions">
+      ${dvd && main ? (NATIVE ? "" : `<button class="btn primary" data-disc-play="${esc(x.id)}">${icon("i-play")}Play</button>`) : ""}
+      ${job ? "" : `<button class="btn${dvd && main && !NATIVE ? "" : " primary"}" data-disc-quick="${esc(x.id)}">${icon("i-download")}Save to ${esc(to)}</button>
+      <button class="btn ghost" data-disc-save="${esc(x.id)}">${k.kind === "cd" ? "Names and tracks…" : dvd ? "Save as episodes, or another title…" : "Choose a name…"}</button>`}</div>
+      ${dvd && NATIVE ? `<p class="fileline">To watch it on this box, play it from Home's disc tile.</p>` : ""}`;
+  const saving = job ? `<div class="disc-saving"><b>${esc(job.name)}</b><span class="up-bar"><i style="width:${Math.round(job.done / (job.total || 1) * 100)}%"></i></span>
+    <span>${esc(job.step)}${job.items > 1 ? " (" + job.item + " of " + job.items + ")" : ""} · ${Math.round(job.done / (job.total || 1) * 100)}% · to ${esc(job.to)}</span>
+    <button class="mini" data-disc-stop="${esc(job.id)}">Stop</button></div>` : "";
+  const last = ((discNow.jobs || []).slice(-1)[0]) || null;
+  const done = last && !job && last.drive === x.id && last.state !== "working" ? `<p class="disc-last ${esc(last.state)}">${last.state === "done" ? "Saved " + esc(last.name) + " to " + esc(last.to) + "." + (last.to === "Inbox" ? " Sofa files it in a minute." : "")
+    : last.state === "cancelled" ? "Stopped." : esc(last.error || "It didn't work.")}</p>` : "";
+  const shown = dvd ? k.titles.filter(t => t.seconds >= 5) : [];         // (a second or two: a disc's menus and logos)
+  const others = shown.length > 1 ? `<h2 class="row-title">On the disc</h2><ul class="list disc-titles">${shown.map(t => `<li><span><b>Title ${t.n}</b> · ${esc(longTime(t.seconds))}${t.chapters.length > 1 ? " · " + plural(t.chapters.length, "chapter") : ""}${t.cant ? " · " + esc(t.cant) : ""}</span>
+      ${!k.problem && !t.cant && !NATIVE ? `<button class="mini" data-disc-play="${esc(x.id)}" data-title="${t.n}">${icon("i-play")}Play</button>` : ""}</li>`).join("")}</ul>` : "";
+  const list = k.kind === "cd" ? `<h2 class="row-title">Tracks</h2><ul class="list disc-titles">${k.tracks.map(t => `<li><span><b>${t.n}.</b> ${esc(t.title || "Track " + t.n)}</span><span class="when">${clock(t.seconds)}</span></li>`).join("")}</ul>` : "";
+  return `<section class="hero movie-hero disc-hero">${pic ? `<img decoding="async" class="hero-bg blur" src="${esc(pic)}" alt="">` : ""}
+    <div class="hero-body movie-body">
+      <span class="frame poster-frame${pic ? "" : " noimg"}">${pic ? `<img decoding="async" src="${esc(pic)}" alt="${esc(discName(x))}">` : `<span class="disc-art">${icon("i-disc")}</span>`}</span>
+      <div><h1>${esc(discName(x))}</h1>
+        <p class="facts">${facts}</p>${tracks}
+        ${g.summary ? `<p class="summary">${esc(g.summary)}</p>` : ""}
+        ${actions}${saving}${done}
+        <p class="fileline">${esc(x.name)}${x.label ? " · " + esc(x.label) : ""}${g.found ? " · details from " + esc(g.found) : ""}${x.copy ? ` · <button class="linkish" data-disc-unsource="${esc(x.id)}">Take it away</button>` : ""}</p>
+      </div></div></section>
+    <section class="page disc-more">${others}${list}</section>`;
+}
+function discSourceDialog() {
+  const d = openDialog(`<h2>Save from a folder or disc image</h2>
+    <p>A DVD copied to this computer as a folder (the one with VIDEO_TS in it), an .iso disc image, or a music CD's .cue. It shows up like a disc in the drive, and saves the same way: every sound and subtitle track, the chapters, nothing converted.</p>
+    <form class="disc-form share-form"><label class="field"><span>Where it is on ${esc((adminData && adminData.server && adminData.server.host) || "the Sofa computer")}</span>
+      <input name="path" placeholder="${navigator.platform.startsWith("Win") ? "D:\\Movies\\Summer at the Lake" : "~/Movies/Summer at the Lake"}" autocomplete="off" spellcheck="false"></label>
+      <p class="disc-error" role="alert" hidden></p>
+      <div class="actions"><button class="btn primary" type="submit">Open it</button><button class="btn ghost" type="button" data-dismiss="1">Not now</button></div></form>`);
+  const form = $("form", d), err = $(".disc-error", d);
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); err.hidden = true;
+    try { const r = await api("/api/admin/disc", { action: "add_source", path: form.elements.path.value }); closeDialog(); location.hash = "#/disc/" + encodeURIComponent(r.drive); discNowKey = ""; setTimeout(loadDiscNow, 300); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  });
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest && e.target.closest("[data-disc-source], [data-disc-unsource]");
+  if (!t) return;
+  if (t.dataset.discSource) return discSourceDialog();
+  if (t.dataset.discUnsource) { await api("/api/admin/disc", { action: "remove_source", drive: t.dataset.discUnsource }).catch(ex => toast(ex.message)); location.hash = "#/"; discNowKey = ""; loadDiscNow(); }
+});
+async function discQuick(id, btn) {
+  if (btn) btn.disabled = true;
+  let ok = false;
+  try { const r = await api("/api/admin/disc", { action: "save", drive: id, quick: true }); ok = true; toast("Saving " + r.job.name + " to " + r.job.to + ". It carries on while you watch or browse."); }
+  catch (e) { toast(e.message, 6000); }
+  if (btn) btn.disabled = false;
+  discNowKey = ""; loadDiscNow();
+  return ok;
+}
+async function discPlay(id, title, btn) {
+  if (btn) btn.disabled = true;
+  try { const p = await api("/api/admin/disc", { action: "play", drive: id, title: title || null }); Player.openDisc(p); }
+  catch (e) { toast(e.message); }
+  if (btn) btn.disabled = false;
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest && e.target.closest("[data-disc-play], [data-disc-quick]");
+  if (!t) return;
+  if (t.dataset.discPlay) return discPlay(t.dataset.discPlay, t.dataset.title ? +t.dataset.title : null, t);
+  if (t.dataset.discQuick) return discQuick(t.dataset.discQuick, t);
 });
 
 /* ---------- send files from this device to the Inbox (admins) ----------
@@ -4170,6 +4295,7 @@ function alertBox(msg) { dialog(`<h2>That didn't work</h2><p>${esc(msg)}</p>`); 
 /* ---------- router ---------- */
 let enterTimer = 0;
 function route(animate) {
+  if (!discStarted && session && session.user && session.user.admin && !session.demo) { discStarted = true; loadDiscNow(); }
   gridRest.clear();
   const trailer = location.hash === trailerHash ? $("video.trailer") : null;     // the same page drawn again: it keeps playing
   if (trailer) clearTimeout(trailerTimer); else stopTrailer();
@@ -4207,6 +4333,7 @@ function route(animate) {
   else if (name === "live" && !session.user.kids) { html = viewLive(); nav = "live"; }
   else if (name === "music") { html = viewMusic(rest); nav = "music"; }
   else if (name === "server" && session.user.admin) { html = viewServer(rest[0]); nav = "server"; }
+  else if (name === "disc" && session.user.admin) { html = viewDisc(rest.join("/")); nav = "home"; }
   else if (name === "more") { html = viewMore(); nav = "more"; }
   else if (name === "box" && window.SofaBox) { html = viewBox(); nav = "box"; }
   else if (name === "games" && gamesOn()) { html = viewGames(); nav = "games"; }
@@ -5226,7 +5353,7 @@ const Player = (function () {
   const scrub = $(".scrub", el), fill = $(".fill", el), buf = $(".buf", el), knob = $(".knob", el), hoverTime = $(".hover-time", el);
   const timeEl = $(".p-time", el), modeEl = $(".p-mode", el), chip = $(".p-chip", el), nextCard = $(".p-next", el), errorBox = $(".p-error", el);
   const flash = $(".p-flash", el), toggleBtn = $('[data-act="toggle"]', el), volume = $(".vol input", el), recBtn = $('[data-act="rec"]', el);
-  const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el);
+  const ccBtn = $('[data-act="cc"]', el), ccMenu = $(".cc-menu", el), discBtn = $('[data-act="disc-save"]', el);
   const spinner = $(".p-spinner", el), pauseInfo = $(".p-pause-info", el), epsPanel = $(".p-eps", el), helpBox = $(".p-help", el);
   const seekHint = $(".p-seekhint", el), endsEl = $(".p-ends", el), epsBtn = $('[data-act="eps"]', el), pipBtn = $('[data-act="pip"]', el);
   const roomBox = $(".p-room", el), roomBtn = $('[data-act="room"]', el);
@@ -5467,7 +5594,7 @@ const Player = (function () {
     pushed = false; endHold(false); roomBox.hidden = true;
     clearTimeout(sleepTimer); sleepPlan = {};
     if (hls) { hls.destroy(); hls = null; }
-    el.classList.remove("is-live"); liveList_ = null;
+    el.classList.remove("is-live"); liveList_ = null; discEnd();
     save(true);
     video.pause();
     video.removeAttribute("src"); video.load();
@@ -5977,6 +6104,7 @@ const Player = (function () {
     else if (a === "eps") { if (epsPanel.hidden) epsOpen(); else epsPanel.hidden = true; }
     else if (a === "pip") togglePip();
     else if (a === "rec") recPress();
+    else if (a === "disc-save" && discOn) { discBtn.disabled = true; discQuick(discOn.drive).then(ok => { discBtn.disabled = ok; if (ok) $("span", discBtn).textContent = "Saving to your library"; }); }
     else if (a === "help") helpToggle();
     else if (a === "retry") { const it = item; errorBox.hidden = true; hlsSession = null; video.removeAttribute("src"); open(it); }
     else if (a === "convert") {
@@ -6246,6 +6374,48 @@ const Player = (function () {
     video.play().catch(() => {});
     wake(); toggleBtn.focus();
   }
+  // A DVD from the drive: converted as it plays (sofa/disc.py), so like Live TV it plays on from where it is; Save this
+  // disc is in the bar, and the stream stops when the player closes.
+  let discOn = null;
+  async function openDisc(p) {
+    MusicPlayer.pause();
+    enterHistory();
+    returnFocus = returnFocus || document.activeElement;
+    liveList_ = null; item = null; plan = { mode: "live", subtitles: [] }; offset = 0; next = null; liveCh = null; discOn = p;
+    el.classList.add("is-live", "is-disc");
+    errorBox.hidden = chip.hidden = nextCard.hidden = ccMenu.hidden = epsPanel.hidden = helpBox.hidden = pauseInfo.hidden = true;
+    ccBtn.hidden = epsBtn.hidden = recBtn.hidden = roomBtn.hidden = roomBox.hidden = true; pipBtn.hidden = TV || !document.pictureInPictureEnabled;
+    discBtn.hidden = false; discBtn.disabled = false;
+    $(".p-show", el).innerHTML = esc(p.name) + '<span class="live-badge disc-badge">DVD</span>';
+    $(".p-title", el).textContent = "Title " + p.title + " · " + longTime(p.seconds);
+    $('[data-act="next"]', el).hidden = true; modeEl.hidden = true;
+    el.hidden = false; document.body.style.overflow = "hidden";
+    showSpinner("Starting the disc…");
+    if (hls) { hls.destroy(); hls = null; }
+    const failed = async () => {
+      let why = "";
+      try { why = (await api("/api/admin/disc/playing?session=" + p.session)).error || ""; } catch (e) {}
+      if (discOn === p) showError("The disc stopped playing", why || "The drive stopped answering. Take the disc out, put it back in and try again.");
+    };
+    if (nativeHls) { video.src = p.url; video.addEventListener("error", failed, { once: true }); }
+    else {
+      try { await loadHlsJs(); } catch (e) { return showError("The disc couldn't start", "The video library for streams didn't load."); }
+      if (discOn !== p) return;
+      if (!window.Hls.isSupported()) video.src = p.url;
+      else {
+        hls = new window.Hls();
+        hls.on(window.Hls.Events.ERROR, (_, data) => { if (data.fatal) failed(); });
+        hls.loadSource(p.url); hls.attachMedia(video);
+      }
+    }
+    video.play().catch(() => {});
+    wake(); toggleBtn.focus();
+  }
+  function discEnd() {
+    if (!discOn) return;
+    api("/api/admin/disc", { action: "play_stop", session: discOn.session }).catch(() => {});
+    discOn = null; discBtn.hidden = true; el.classList.remove("is-disc");
+  }
   function zap(step) {
     if (!liveList_ || liveList_.length < 2) return;
     liveIdx = (liveIdx + step + liveList_.length) % liveList_.length;
@@ -6351,7 +6521,7 @@ const Player = (function () {
     else if (c.cmd === "stop") requestClose();
     wake();
   }
-  return { open, openLive, zap, capsQuery, status, control, sync, hlsLib: loadHlsJs, nativeHls, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
+  return { open, openLive, openDisc, zap, capsQuery, status, control, sync, hlsLib: loadHlsJs, nativeHls, isLive: () => el.classList.contains("is-live"), isOpen: () => !el.hidden };
 })();
 
 /* ---------- watching together (sofa/together.py) ----------

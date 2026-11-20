@@ -1432,6 +1432,9 @@ class Player:
     def menu_items(self):
         """[label, [(value, shown)], index of the current one, what it sets] for this video."""
         items = []
+        disc = (self.payload or {}).get("disc")
+        if disc and disc.get("kind") in ("dvd", "cd"):     # a disc from Home's tile: saved into Sofa on this box, as it plays
+            items.append(["Save this disc", [(None, "to Sofa on this box")], 0, "disc"])
         rec = self.rec if (self.payload or {}).get("live") else None
         if rec and rec.get("can"):                          # (Live TV at home: the Record sheet, as REC opens it)
             items.append(["Record", [(None, "Recording" if rec.get("recording") else "")], 0, "record"])
@@ -1500,6 +1503,12 @@ class Player:
             if k == "ok":
                 self.menu_close()
                 return self.osd(recsheet=True)
+        elif item[3] == "disc":
+            if k == "ok":
+                self.menu_close()
+                drive = ((self.payload or {}).get("disc") or {}).get("drive")
+                threading.Thread(target=self._save_disc, args=(drive,), daemon=True).start()
+                return self.osd(toast="Saving the disc in Sofa on this box…")
         elif item[3] == "volume":
             if k in ("left", "right", "ok"):
                 level, muted = box_volume(-4 if k == "left" else 4)
@@ -1513,6 +1522,27 @@ class Player:
                 if lang_codes(lang) and lang_codes(lang) != lang_codes(settings().get("alang")):
                     save_settings(alang=lang_codes(lang)[0])
         self.menu_draw()
+
+    def _save_disc(self, drive):
+        """Menu → Save this disc: the disc that's playing, saved in one press into Sofa on this box (named from what's
+        found for it), while it goes on playing. What happened comes up as a message on the picture."""
+        try:
+            disc_save({"action": "start"})
+            for _ in range(60):                          # (the box's Sofa reads the disc first: a few seconds)
+                st = disc_save()
+                d = next((x for x in st.get("drives") or [] if x.get("id") == drive), None)
+                if d and d.get("disc"):
+                    break
+                time.sleep(1)
+            r = disc_save({"action": "save", "drive": drive, "quick": True})
+            job = r.get("job") or {}
+            text = "Saving %s to %s on this box. Keep watching: it carries on." % (job.get("name") or "the disc", job.get("to") or "Sofa")
+        except ValueError as exc:
+            text = str(exc)
+        except Exception as exc:
+            text = "The disc couldn't be saved: %s" % exc
+        if playing():
+            self.osd(toast=text[:200])
 
     def ok(self):
         """OK on the remote while playing: skip the intro when it's on, else pause/play."""
