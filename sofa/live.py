@@ -168,8 +168,10 @@ def parse_m3u(text, source, adult=False):
             attrs = dict(ATTR.findall(line))
             name = line.rsplit(",", 1)[-1].strip() if "," in line else attrs.get("tvg-name", "Channel")
             name, raw = tidy_name(name or attrs.get("tvg-name") or "Channel"), attrs.get("group-title") or ""
+            mark = bool(ADULT_GROUP.search(raw))           # (its own group says adult: adult, whatever list it's in)
             info = {"name": name, "logo": attrs.get("tvg-logo") or None, "group": intern(category(raw, name)),
-                    "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line)), "adult": bool(ADULT_GROUP.search(raw))}
+                    "tvg": attrs.get("tvg-id") or None, "geo": bool(GEO.search(line)), "adult": mark, "marked": mark,
+                    "xword": mark or bool(ADULT_NAME.search(name))}
             opts = {}
         elif line.startswith("#EXTVLCOPT:"):
             k, _, v = line[len("#EXTVLCOPT:"):].partition("=")
@@ -493,8 +495,29 @@ def list_trouble(exc):
     return str(exc)[:200]
 
 
+ORDINARY_SHARE = 0.8                # an adult-marked list "looks ordinary" when this share of its channels sits in a
+ORDINARY_MIN = 10                   # known category or a named group (News, Kids, a country), none says adult, and
+                                    # it has at least this many
+
+
+def ordinary(found):
+    """A list marked Adult whose channels look like ordinary TV: the lists' groups put them in News, Kids, Movies, a
+    country, and no group or name says adult (a list named "xxx" that is BBC News and cartoons). Returns its biggest
+    categories, or None. The real adult lists either say so in their groups or names, or give no groups at all."""
+    if len(found) < ORDINARY_MIN or any(c.get("xword") for c in found):
+        return None
+    known = [c["group"] for c in found if c["group"] != REST]
+    if len(known) < ORDINARY_SHARE * len(found):
+        return None
+    counts = {}
+    for g in known:
+        counts[g] = counts.get(g, 0) + 1
+    return [g for g, _ in sorted(counts.items(), key=lambda x: (-x[1], cat_rank(x[0])))][:4]
+
+
 def _build(force):
     channels = {}
+    plain_lists, adult_lists = set(), set()
     for pl in playlists():
         url, name = pl["url"], pl.get("name") or pl["url"]
         path = _saved_as(url)
@@ -507,6 +530,9 @@ def _build(force):
             _home[url] = at_home(url)
         home = _home.get(url, False)                    # a tuner's list at home (HDHomeRun): its channels are at home too
         off = bool(pl.get("off"))                       # switched off (Server, Live TV): kept, and none of it in Live TV
+        looks = ordinary(found) if pl.get("adult") else None
+        if pl.get("adult") and not off:
+            (plain_lists if looks else adult_lists).add(url)
         for c in () if off else found:
             c["home"] = home
             kept = channels.setdefault(c["id"], c)
@@ -515,7 +541,18 @@ def _build(force):
             if url not in kept.get("lists", ()):
                 kept["lists"] = kept.get("lists", ()) + (sys.intern(url),)   # (the same stream in two lists: one channel, in both)
         _status[url] = {"name": name, "url": url, "count": len(found), "error": _errors.get(url), "adult": bool(pl.get("adult")),
-                        "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None}
+                        "updated": int(os.path.getmtime(path)) if os.path.exists(path) else None, "ordinary": looks}
+    # A channel is adult when its own group says so, or a list marked Adult holds it. A list marked Adult that looks
+    # like ordinary TV (ordinary()) doesn't make its channels adult when an ordinary list also holds them (BBC News stays
+    # in Live TV), and those it alone holds are "plain": out of Live TV (the owner said adult) and off the Adult page
+    # (they aren't), until the owner says which it is. Server, Live TV says so under the list.
+    for c in channels.values():
+        lists = c.get("lists") or ()
+        if c.get("marked") or adult_lists.intersection(lists):
+            c["adult"], c["plain"] = True, False
+        elif plain_lists.intersection(lists):
+            others = [u for u in lists if u not in plain_lists]
+            c["adult"], c["plain"] = not others, not others
     if config.demo_on():                            # the public demo: its own checked list, and nothing else
         from . import demo
         channels = demo.channels()
@@ -605,7 +642,7 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
                 continue
         gone = bool(hide and down(c["id"]))
-        if only_adult and not works(c["id"]):
+        if only_adult and (c.get("plain") or not works(c["id"])):
             continue
         key = c.get("same") or c["id"]
         row = rows.get(key)
@@ -645,12 +682,45 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
         if not cats or cats[-1] != row["group"]:
             cats.append(row["group"])
     if only_adult:
-        out.sort(key=lambda r: (r["name"].lower(), r.get("number") or 0))
-        return {"down": 0, "cats": [], "playlists": lists_shown(lists), "channels": out,
-                "checking": adult_state(chans)}
+        named = adult_groups([r["name"] for r in out], {r["name"]: r["group"] for r in out})
+        for r in out:
+            r["group"] = named.get(r["name"], ADULT_REST)
+        rank = {}
+        for r in out:
+            rank[r["group"]] = rank.get(r["group"], 0) + 1
+        order = sorted(rank, key=lambda g: (g == ADULT_REST, -rank[g], g.lower()))
+        out.sort(key=lambda r: (order.index(r["group"]), r["name"].lower(), r.get("number") or 0))
+        return {"down": 0, "cats": order, "playlists": lists_shown(lists), "channels": out,
+                "checking": adult_state([c for c in chans if not c.get("plain")])}
     return {"down": gone, "cats": cats,
             "playlists": [] if public_only else lists_shown(lists),
             "channels": out}
+
+
+ADULT_REST = "Other channels"
+_GENERIC = frozenset("xxx adult adults porn sex hot live tv channel channels the free 18+ hd".split())
+
+
+def adult_groups(names, groups=None):
+    """The Adult page's categories: adult lists rarely give groups, but their channels are named by the site or network
+    they come from ("MyCamTV Mature", "XXX MILF", "Brazzers TV"). A first word that three or more channels share is a
+    category ("MyCamTV", "XXX"); a channel with none goes under its list's group when that names something, else
+    "Other channels". Never the words after it (they describe the people in it, and aren't Sofa's to sort by).
+    `groups`: {name: the category its list's group gave}. Returns {name: category}."""
+    first = {}
+    for n in names:
+        w = (_WORDS.findall(n) or [""])[0]
+        if w:
+            first.setdefault(w.lower(), []).append(w)
+    brand = {k: max(set(v), key=v.count) for k, v in first.items() if len(v) >= 3}
+    out = {}
+    for n in names:
+        w = (_WORDS.findall(n) or [""])[0].lower()
+        if w in brand:
+            out[n] = brand[w].upper() if w in _GENERIC else brand[w]
+        elif (groups or {}).get(n, REST) != REST:
+            out[n] = groups[n]
+    return out
 
 
 def twins(cid):
@@ -1001,7 +1071,7 @@ def adult_state(chans=None):
     now = time.time()
     if chans is None:
         with _lock:
-            chans = [c for c in _channels.values() if c.get("adult") and visible(c)]
+            chans = [c for c in _channels.values() if c.get("adult") and not c.get("plain") and visible(c)]
     ids = [c["id"] for c in chans]
     fresh = [i for i in ids if i in _health and now - _health[i].get("at", 0) <= ADULT_FRESH]
     return {"total": len(ids), "checked": len(fresh), "working": sum(1 for i in ids if works(i, now)),
@@ -1124,7 +1194,7 @@ def _due(now=None):
 
     def adult_new(c):
         h = _health.get(c["id"])
-        return bool(c.get("adult")) and (not h or now - h.get("at", 0) > ADULT_FRESH)
+        return bool(c.get("adult")) and not c.get("plain") and (not h or now - h.get("at", 0) > ADULT_FRESH)
 
     rest = sorted((c for c in chans if c["id"] not in first and when(c) <= now),
                   key=lambda c: (not adult_new(c), c["id"] not in favs, when(c), c["id"]))

@@ -152,10 +152,11 @@ A list marked Adult has its own page, **Adult → Live TV**, and its channels ar
 - At home only: adult channels are never sent out through Sofa, and never play away from home.
 - Activity doesn't name an adult list, "Watching now" says "something private", and a Sofa Box's player and its
   phone remote show the channel's number, not its name.
-- A channel is adult when any list holding it is, whichever list was added first.
+- A channel is adult when its own group says so, or any list marked Adult holds it, whichever list was added first.
+  The one exception is below: a list marked Adult that is ordinary TV.
 
 **Only channels that play are shown.** Adult lists are short-lived: most of their channels are gone or broken at any
-time. The page is one plain list, by name, of the channels Sofa saw play in the last two days, and nothing else:
+time. The page shows the channels Sofa saw play in the last two days, and nothing else:
 
 - Sofa looks at an adult channel it hasn't seen lately before anything else, a few at a time, never two at once on the
   same site, the way a viewer at home opens it. One that plays is looked at again a day later.
@@ -163,5 +164,15 @@ time. The page is one plain list, by name, of the channels Sofa saw play in the 
   it, gets video again.
 - With none to show yet, the page says how far Sofa has got ("1 of 42 so far") and fills in by itself, or that none
   played when Sofa last looked, or that checking is switched off.
+- **Categories by network.** Adult lists rarely sort their channels, but they name them after the site or network they
+  come from ("CamNet Lounge", "XXX Gold"). A first word three or more channels share is a category ("CamNet", "XXX");
+  a channel with none goes under its list's own group when it has one, else **Other channels**. The words after it,
+  which describe the people in it, are never made into categories.
+- **A list marked Adult that is ordinary TV isn't on the page.** A list can look adult by its name ("Github xxx") and
+  be News, Kids and Bollywood. When ten or more channels, four in five of them in ordinary groups (News, Kids, Movies,
+  a country or a language), and not one group or name says adult, Sofa takes it as ordinary TV: its channels are off
+  the Adult page, and out of Live TV too (you said Adult) until you say which it is. The Adult page and **Server →
+  Live TV** both say so under its name; press **Adult** on it to put its channels in Live TV. A channel it shares with
+  an ordinary list (BBC News in both) stays in Live TV.
 - **Server → Live TV** says under each adult list how many of its channels play, how many didn't and how many aren't
   checked yet. A list that can't be read says why in plain words, such as a site name that doesn't exist any more.

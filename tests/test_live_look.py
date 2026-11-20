@@ -24,6 +24,12 @@ MAIN = [("SPORTS", "", "Field One (720p)", "a1"), ("Sports", "", "Field Two [Geo
 SECOND = [("News", "wire.xx", "Wire", "b3"), ("News", "wire.yy", "Wire", "b4")]
 LATE = [("", "", "Late One", "x1"), ("", "", "Late Two", "x2"), ("Undefined", "", "Plain", "a5")]
 LONG = [("News", "", "Long %03d" % n, "n%d" % n) for n in range(700)]
+# A list someone marked Adult by its name that is ordinary TV (one of its channels also in Main), and a real one: no
+# groups, its channels named by the network they come from.
+TVXXX = [("News", "", "Globe News %d" % n, "t%d" % n) for n in range(5)] + [("Kids", "", "Cartoon Hour %d" % n, "k%d" % n) for n in range(4)] + \
+        [("Bangla", "", "Dhaka %d" % n, "d%d" % n) for n in range(3)] + [("General", "", "Odd One", "o1"), ("SPORTS", "", "Field One (720p)", "a1")]
+CAMS = [("", "", "MyCamTV %s" % w, "c%d" % n) for n, w in enumerate(("Lounge", "Studio", "Garden"))] + \
+       [("", "", "XXX %s" % w, "y%d" % n) for n, w in enumerate(("Night", "Classic", "Gold", "Prime"))] + [("", "", "Red Light", "r1")]
 
 
 class Air(BaseHTTPRequestHandler):
@@ -41,7 +47,7 @@ class Air(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        lists = {"/main.m3u": MAIN, "/second.m3u": SECOND, "/late.m3u": LATE, "/long.m3u": LONG}
+        lists = {"/main.m3u": MAIN, "/second.m3u": SECOND, "/late.m3u": LATE, "/long.m3u": LONG, "/tvxxx.m3u": TVXXX, "/cams.m3u": CAMS}
         if self.path in lists:
             body, ctype = "#EXTM3U\n" + "".join('#EXTINF:-1 tvg-id="%s" group-title="%s",%s\n%s/%s/index.m3u8\n' % (t, g, n, self.base, p)
                                                 for g, t, n, p in lists[self.path]), "audio/x-mpegurl"
@@ -421,8 +427,8 @@ class WorkingOnly(unittest.TestCase):
         played("x2", "a5")
         live.mark(cid("x1"), False, "it answered 404")
         got = live.listing(self.me, adult=True, only_adult=True)
-        self.assertEqual([c["name"] for c in got["channels"]], ["Late Two", "Plain"])        # (by name, no categories)
-        self.assertEqual((got["cats"], got["checking"]["checked"], got["checking"]["working"]), ([], 3, 2))
+        self.assertEqual([c["name"] for c in got["channels"]], ["Late Two", "Plain"])        # (no network names: by name)
+        self.assertEqual((got["cats"], got["checking"]["checked"], got["checking"]["working"]), (["Other channels"], 3, 2))
         # played, but longer ago than Sofa keeps it for: not shown until it plays again
         live._health[cid("x2")]["at"] -= live.ADULT_FRESH + 60
         self.assertEqual(self.names(), ["Plain"])
@@ -521,3 +527,57 @@ class OnTheBox(InABrowser):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AdultCategories(unittest.TestCase):
+    """The Adult page's categories make sense: a list marked Adult that is ordinary TV (News, Kids, a country) isn't on
+    it, and the real adult channels are grouped by the network their names give."""
+
+    def setUp(self):
+        live._home_ip = lambda ip: False
+        live._home.clear()
+        config.update({"offline": False, "live_check": True, "archive_channels": False, "retro_eras": False, "live_playlists": [
+            {"name": "Main", "url": Air.base + "/main.m3u"}, {"name": "Github xxx", "url": Air.base + "/tvxxx.m3u", "adult": True},
+            {"name": "XXX Streams", "url": Air.base + "/cams.m3u", "adult": True}]})
+        live._health.clear()
+        live._health_state.update(loaded=True, wanted=0.0, asked={}, dirty=False)
+        live.refresh(force=True)
+        played()
+        self.me = uid("look-admin")
+
+    def tearDown(self):
+        lists()
+
+    def test_a_list_marked_adult_that_is_ordinary_tv_isnt_on_the_adult_page(self):
+        got = live.listing(self.me, adult=True, only_adult=True)
+        names = [c["name"] for c in got["channels"]]
+        self.assertFalse([n for n in names if n.startswith(("Globe News", "Cartoon Hour", "Dhaka", "Odd One"))])
+        github = next(p for p in got["playlists"] if p["name"] == "Github xxx")
+        self.assertEqual(github["ordinary"], ["News", "Kids", "Bangla", "Sports"])
+        self.assertIsNone(next(p for p in got["playlists"] if p["name"] == "XXX Streams")["ordinary"])
+        # ...nor in Live TV (the owner said adult), except the channel an ordinary list also holds
+        plain = [c["name"] for c in live.listing(uid("look-plain"), only_adult=False)["channels"]]
+        self.assertIn("Field One", plain)
+        self.assertFalse([n for n in plain if n.startswith(("Globe News", "Cartoon Hour", "Dhaka"))])
+        self.assertEqual(live.adult_state()["total"], 8)                       # (and they aren't checked as adult ones)
+
+    def test_the_real_adult_channels_are_grouped_by_their_network(self):
+        got = live.listing(self.me, adult=True, only_adult=True)
+        self.assertEqual(got["cats"], ["XXX", "MyCamTV", "Other channels"])
+        by = {}
+        for c in got["channels"]:
+            by.setdefault(c["group"], []).append(c["name"])
+        self.assertEqual(by, {"XXX": ["XXX Classic", "XXX Gold", "XXX Night", "XXX Prime"],
+                              "MyCamTV": ["MyCamTV Garden", "MyCamTV Lounge", "MyCamTV Studio"], "Other channels": ["Red Light"]})
+
+    def test_one_word_that_says_adult_and_the_list_is_adult(self):
+        rows = live.parse_m3u("#EXTM3U\n" + "".join('#EXTINF:-1 group-title="News",%s\nhttp://x.example/%d.m3u8\n' % (n, k)
+                                                      for k, n in enumerate(["Globe %d" % k for k in range(11)] + ["Night XXX"])), "t", adult=True)
+        self.assertIsNone(live.ordinary(rows))
+        self.assertEqual(live.ordinary(rows[:11]), ["News"])
+        self.assertIsNone(live.ordinary(rows[:9]))                             # (too few to say)
+
+    def test_the_server_page_says_which_list_looks_ordinary(self):
+        github = next(p for p in live.summary(adult=True)["playlists"] if p["name"] == "Github xxx")
+        self.assertEqual(github["ordinary"], ["News", "Kids", "Bangla", "Sports"])
+

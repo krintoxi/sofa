@@ -2650,7 +2650,8 @@ async function loadLive() {
 }
 function liveList() {
   const q = liveQuery.trim().toLowerCase();
-  if (liveAdult) return q ? liveData.channels.filter(c => c.name.toLowerCase().includes(q) || String(c.number || "") === q) : liveData.channels;
+  if (liveAdult) return q ? liveData.channels.filter(c => c.name.toLowerCase().includes(q) || String(c.number || "") === q)
+    : liveData.channels.filter(c => liveGroup === "All" || (liveGroup === "Favorites" ? c.fav : liveGroup === "Recent" ? liveRecent().includes(c) : c.group === liveGroup));
   if (eraMode() && !q) {
     if (liveEra === "fav") return liveData.channels.filter(c => c.fav);
     if (liveEra === "antenna") return liveData.channels.filter(c => c.tuner).sort(byTunerNumber);
@@ -2677,7 +2678,7 @@ function dialRow(c) {
       <button class="star" data-fav="${esc(c.id)}" aria-pressed="${!!c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div></div>`;
 }
 function liveDial(list, cats) {
-  const mixed = !liveAdult && (!cats || liveQuery || /^(All|Favorites|Recent)$/.test(liveGroup));   // (channels of several categories: each row says which; the Adult page is one plain list)
+  const mixed = !cats || liveQuery || /^(All|Favorites|Recent)$/.test(liveGroup);   // (channels of several categories: each row says which)
   return `<div class="tv-guide live-dial${cats ? "" : " no-cats"}${mixed ? " mixed" : ""}" id="dial">
     ${cats ? `<div class="chips lv-cats" role="group" aria-label="Categories">${cats.map(([id, label, n]) => `<button data-group="${esc(id)}" aria-pressed="${id === liveGroup}"><span>${esc(label)}</span><small>${n.toLocaleString()}</small></button>`).join("")}</div>` : ""}
     <div class="lv-mid">${list.length ? `<div class="g-rows" id="dRows">${list.slice(0, LIVE_PAGE).map(dialRow).join("")}${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}</div>`
@@ -2819,7 +2820,9 @@ function viewLive(xxx) {
       aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : e.id === "rec" ? `<i class="rec-dot${dvrBusy() ? " on" : ""}"></i>` : ""}${esc(e.name)}</button>`).join("")}</div>`;
   const st = liveAdult ? liveData.checking || {} : null;
   const head = `<div class="page-head live-head"><h1>${name}</h1>${TV && !liveAdult ? tabs : `<span class="count">${liveAdult ? plural(liveData.channels.length, "channel") + " playing" : plural(liveData.channels.length, "channel")}</span>`}${back}</div>${TV ? "" : tabs}`;
-  const still = st && st.on && st.checked < st.total ? `<p class="count lv-checking">Sofa is still checking ${plural(st.total - st.checked, "channel")}, a few at a time. The ones that play show up here.</p>` : "";
+  const plainLists = liveAdult ? (liveData.playlists || []).filter(p => p.ordinary && !p.off) : [];
+  const plainNote = plainLists.map(p => `<p class="count lv-plain">${esc(p.name)} isn't shown here: its channels are ${esc(p.ordinary.join(", "))}, not adult.${session.user.admin ? ` Server, Live TV: press <b>Adult</b> on it to put them in Live TV.` : ""}</p>`).join("");
+  const still = (st && st.on && st.checked < st.total ? `<p class="count lv-checking">Sofa is still checking ${plural(st.total - st.checked, "channel")}, a few at a time. The ones that play show up here.</p>` : "") + plainNote;
   const gone = session.user.admin && liveData.down ? (prefs.get("liveShowDown", false)
     ? `<p class="count live-gone">Showing ${plural(liveData.down, "channel")} that didn't answer the last time Sofa looked. <button class="link-btn" data-live-down="0">Leave them out</button></p>`
     : `<p class="count live-gone">${plural(liveData.down, "channel")} that ${liveData.down === 1 ? "doesn't answer is" : "don't answer are"} left out. <button class="link-btn" data-live-down="1">Show them anyway</button></p>`) : "";
@@ -2834,7 +2837,7 @@ function viewLive(xxx) {
       : st.cut_off ? "The internet didn't answer Sofa's last looks, so no channel could be checked. Sofa tries again in a few minutes."
       : st.checked < st.total ? `None of these channels has played yet. Sofa is checking them, a few at a time: ${st.checked} of ${st.total} so far. Any that plays shows up here by itself.`
       : `None of the ${plural(st.total, "adult channel")} played when Sofa last looked. Free adult channels come and go; Sofa looks again every few hours, and any that comes back shows up here by itself.`;
-    return `<section class="page"><div class="page-head"><h1>${name}</h1>${back}</div><p class="count lv-none" style="max-width:64ch">${why}</p></section>`;
+    return `<section class="page"><div class="page-head"><h1>${name}</h1>${back}</div><p class="count lv-none" style="max-width:64ch">${why}</p>${plainNote}</section>`;
   }
   if (!liveData.channels.length && visitorMode()) {
     return `<section class="page">${head}<p class="count" style="max-width:62ch">Nothing's on Live TV here yet. Come back later.</p></section>`;
@@ -2845,7 +2848,7 @@ function viewLive(xxx) {
       ${session.user.admin ? `<div class="presets">${PRESETS.map(p => `<button class="btn" data-preset="${esc(p[1])}" data-name="${esc(p[0])}">Add ${esc(p[0])}</button>`).join("")}</div>` : ""}</section>`;
   }
   // an era: its guide. Live now, the starred ones and a search: the dial (thousands of channels: by category, and a search)
-  const now = liveEra === "now", cats = now && !liveQuery && !liveAdult ? liveCats() : null;
+  const now = liveEra === "now", cats = now && !liveQuery ? liveCats() : null;
   if (cats && cats.length && !cats.some(c => c[0] === liveGroup)) liveGroup = cats[0][0];
   const list = liveList(), searching = liveEra !== "rec" && (!TV || now || liveEra === "fav") || liveQuery;
   if (liveEra === "rec" && !liveQuery) return `<section class="page live-page">${head}${viewRecordings()}</section>`;
@@ -3937,6 +3940,7 @@ document.addEventListener("click", e => {
 });
 function listWorks(p) {                                // an adult list: how many of its channels play (only those are shown)
   const w = p.works;
+  if (p.ordinary) return "";                            // (not on the Adult page at all: the line under it says why)
   if (!w || !p.count) return ", in the Adult section";
   const bits = [`${w.working} play${w.working === 1 ? "s" : ""}`];
   if (w.failing) bits.push(`${w.failing} didn't`);
@@ -3949,7 +3953,7 @@ function srvLive(d) {
     : h.waiting ? "Nobody has opened Live TV for a week, so Sofa isn't looking. It starts again when someone does."
     : !h.total ? "" : `${h.checked} of ${plural(h.total, "channel")} looked at${h.checked < h.total ? " so far" : ""}; ${h.down === 1 ? "1 doesn't answer and is" : h.down + " don't answer and are"} left out.`;
   return `<div class="panels">${tunersPanel(d.tuners, s)}<div class="panel wide"><h2>Live TV channel lists</h2><p class="hint">M3U playlists of free channels. Sofa re-downloads them twice a day. At home they play through Sofa; away from home, and for visitors, straight from where each channel is streamed, or not at all. <b>On / Off</b> takes a list's channels out of Live TV, for everyone, without losing the list; <b>Visitors</b> is only about the public library's visitors and changes nothing at home. <b>Adult</b> moves a list's channels out of Live TV and into the Adult section's own Live TV page: only people allowed to see Adult get them, at home, and never visitors, Kids profiles, guests or TVs on the network.</p>
-    <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}${p.off ? ` <span class="tag">Off</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : !p.updated && d.liveReading ? "Sofa is reading it now…" : plural(p.count || 0, "channel") + (p.off ? ", none of them in Live TV" : p.adult ? listWorks(p) : "")}</span>${p.adultish ? `<br><span class="when live-nudge">Its name says adult. Press <b>Adult</b> to keep its channels out of Live TV and in the Adult section.</span>` : ""}</span>
+    <ul class="list">${(d.live || []).map(p => `<li><span><b>${esc(p.name)}</b>${p.adult ? ` <span class="tag">Adult</span>` : ""}${p.off ? ` <span class="tag">Off</span>` : ""}<br><span class="when">${p.error ? "Problem: " + esc(p.error) : !p.updated && d.liveReading ? "Sofa is reading it now…" : plural(p.count || 0, "channel") + (p.off ? ", none of them in Live TV" : p.adult ? listWorks(p) : "")}</span>${p.adult && p.ordinary ? `<br><span class="when live-nudge">This doesn't look like an adult list: its channels are ${esc(p.ordinary.join(", "))}, and none says adult. They're kept out of Live TV and off the Adult page until you say which it is: press <b>Adult</b> to put them in Live TV.</span>` : ""}${p.adultish ? `<br><span class="when live-nudge">Its name says adult. Press <b>Adult</b> to keep its channels out of Live TV and in the Adult section.</span>` : ""}</span>
       <span class="row-actions"><button class="mini" data-live-switch="${esc(p.url)}" aria-pressed="${!p.off}" title="Off: the list stays here and none of its channels are in Live TV, for anyone">${p.off ? "Off" : "On"}</button>
       ${session.user.adult ? `<button class="mini" data-live-adult="${esc(p.url)}" aria-pressed="${!!p.adult}" title="Adult: its channels are in the Adult section's Live TV page and nowhere else">${p.adult ? "Adult: yes" : "Adult: no"}</button>` : ""}
       ${p.adult ? "" : `<button class="mini" data-live-public="${esc(p.url)}" aria-pressed="${!!p.public}" title="The public library's visitors get this list's channels too (with Live TV shared, in Sharing)">${p.public ? "Visitors: on" : "Visitors: off"}</button>`}

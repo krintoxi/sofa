@@ -2080,6 +2080,7 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 .lv-watch .g-chline b { font-size: 22px; }
 .lv-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .live-nudge { color: var(--amber-hi, var(--amber)); }
+.list li .when.live-nudge { white-space: normal; display: inline-block; max-width: 72ch; }
 :root[data-theme="street"] .lv-watch .g-chline span { color: var(--second); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .tv .live-dial { grid-template-columns: 196px minmax(0, 1fr) minmax(0, .92fr); gap: 14px; }
 .tv .live-dial .g-now.lv-watch { position: static; padding: 12px; grid-template-columns: none; }

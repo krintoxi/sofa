@@ -8,6 +8,25 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
 
+## 1.5.35 (2026-11-20)
+
+Adult Live TV's categories make sense. (On top of 1.5.31, Adult Live TV's working channels only.)
+
+- **Seen on the owner's Sofa (read-only):** Adult Live TV's categories were News, Movies, Kids, Bangla, Lifestyle,
+  Music. One of three lists marked Adult, named "Github xxx", is ordinary TV: 94 channels, 89 in ordinary groups (BBC
+  News, cartoons, Bollywood, Bangla stations), none with an adult group or name. The two real adult lists give no
+  groups at all, so their 42 channels were all "Everything else".
+- **A list marked Adult that is ordinary TV is no longer on the Adult page.** Ten or more channels, four in five in
+  ordinary groups, and not one group or name that says adult. Its channels stay out of Live TV (the owner said
+  Adult) until the owner says which it is; the Adult page and Server → Live TV say so under its name, and pressing
+  **Adult** puts them in Live TV. A channel it shares with an ordinary list stays in Live TV (it used to leave it), and
+  its channels aren't checked ahead of others as adult ones.
+- **Categories by network.** The real adult channels are grouped by the first word their names share ("XXX",
+  "CamNet": three or more channels), else by their list's own group, else **Other channels**. Never by the words
+  after it. Biggest first, then All channels; the same category pane as Live TV.
+- Seen in Chrome on a Mac with stand-in lists shaped like the owner's (invented names). Not on the owner's Sofa, a TV
+  or a Sofa Box.
+
 ## 1.5.34 (2026-11-19)
 
 Adult Live TV shows only channels that play.
