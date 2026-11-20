@@ -1127,6 +1127,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/disc/poster":       # the picture found for the disc in a drive
             f = None if config.demo_on() else disc.poster((qs.get("drive") or [""])[0])
             return self.send_file(f, cache="private, max-age=300") if f else self.send_body("Not found", status=404)
+        if path == "/api/admin/disc/browse":       # Save from a folder or disc image: a folder on this computer
+            try:
+                return self.json(disc.browse((qs.get("path") or [""])[0] or None))
+            except ValueError as exc:
+                return self.error(400, str(exc))
+        if path == "/api/admin/disc/copies":       # ...and the DVD copies found on it by themselves
+            return self.json({"copies": slow.cached("disc-copies", 60, disc.find_copies, wait=10, default=[])})
+        if path == "/api/admin/capture/look":      # a look through the capture stick: picture and sound
+            from . import capture
+            try:
+                got = capture.preview((qs.get("device") or [""])[0])
+            except ValueError as exc:
+                return self.error(400, str(exc))
+            import base64
+            pic = got.pop("picture")
+            return self.json(dict(got, picture="data:image/jpeg;base64," + base64.b64encode(pic).decode("ascii") if pic else None))
         if path == "/api/admin/disc/playing":      # how watching a disc is going (it stopped: why)
             return self.json(disc.play_status((qs.get("session") or [""])[0]))
         if path == "/api/admin/disc":              # Save this disc: the drives, what's in them, how a save is going
