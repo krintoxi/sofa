@@ -768,6 +768,8 @@ def _drop_empty(folder):
 
 
 def _still_there(d):
+    if d.get("inbox"):
+        return os.path.exists(d["dev"])
     return any(x["id"] == d["id"] and x["state"] == "disc" and _key(x) == _key(d) for x in drives())
 
 
@@ -1141,3 +1143,82 @@ def _reaper():
             play_stop(k)
         if left <= len(idle):
             return
+
+
+# ---------------------------------------------------------------- a DVD rip dropped in the Inbox
+
+_inbox = set()              # Inbox entries being saved now (the organizer leaves them alone meanwhile)
+
+
+def rip_source(entry):
+    """The DVD in an Inbox entry, or None: an .iso, a folder holding VIDEO_TS (as rippers save a disc), VIDEO_TS
+    itself, or a folder holding one .iso. (path to read, its folder or None)"""
+    if os.path.isfile(entry):
+        return entry if entry.lower().endswith(".iso") else None
+    if not os.path.isdir(entry):
+        return None
+    if os.path.basename(entry.rstrip("/\\")).upper() == "VIDEO_TS":
+        return os.path.dirname(entry.rstrip("/\\"))
+    for at, dirs, files in os.walk(entry):
+        if any(d.upper() == "VIDEO_TS" for d in dirs) and any(f.upper().startswith("VIDEO_TS.") for d in dirs if d.upper() == "VIDEO_TS"
+                                                             for f in os.listdir(os.path.join(at, d))):
+            return at
+        isos = [f for f in files if f.lower().endswith(".iso")]
+        if len(isos) == 1 and at == entry:
+            return os.path.join(at, isos[0])
+        if at.count(os.sep) - entry.count(os.sep) >= 2:
+            dirs[:] = []
+    return None
+
+
+def inbox_busy(entry):
+    with _lock:
+        return os.path.abspath(entry) in _inbox
+
+
+def inbox_rip(entry, name, year=None, done=None, who="the Inbox"):
+    """Save the DVD in an Inbox entry as one movie (its film, with every sound and subtitle track and the chapters),
+    named `name` (`year`). Runs in the background; `done(job)` is called at the end, whatever happened. Raises
+    ValueError at once when it can't (a copy-protected disc, no film on it, a name that's taken)."""
+    path = rip_source(entry)
+    if not path:
+        raise ValueError("There's no DVD in it.")
+    path = os.path.abspath(path)
+    d = {"id": "inbox-" + hashlib.sha1(path.encode("utf-8")).hexdigest()[:8], "dev": path, "mount": path if os.path.isdir(path) else None,
+         "name": "Inbox", "state": "disc", "kind": "dvd", "label": name, "image": True, "inbox": True}
+    source = _open_video(d)
+    try:
+        info = dvd.titles(source)
+        disc = {"kind": "dvd", "label": name, "_titles": info["titles"], "protected": False, "problem": None}
+        for t in sorted([t for t in info["titles"] if not t["cant"]], key=lambda t: -t["seconds"])[:3]:
+            if dvd.sample(source, t):
+                raise ValueError(PROTECTED.split(".")[0] % "DVD" + ": what's in it is still scrambled.")
+    finally:
+        source.close()
+    t = main_title(disc)
+    if not t:
+        raise ValueError("There's no film on this DVD that Sofa can save.")
+    plan = _plan(d, disc, {"to": "movies", "name": name, "year": year or "", "titles": [t["n"]]})
+    with _lock:
+        if any(j["state"] == "working" for j in _jobs):
+            raise ValueError("busy")
+        job = {"id": uuid.uuid4().hex[:10], "drive": d["id"], "kind": "dvd", "name": plan[0]["what"], "to": "Movies",
+               "state": "working", "step": "Starting", "item": 0, "items": 1, "done": 0, "total": plan[0]["size"],
+               "files": [], "notes": [], "error": None, "started": int(time.time()), "finished": None, "_stop": False, "inbox": True}
+        _jobs.append(job)
+        del _jobs[:-20]
+        _inbox.add(os.path.abspath(entry))
+
+    def run():
+        try:
+            _work(job, d, plan, who)
+        finally:
+            with _lock:
+                _inbox.discard(os.path.abspath(entry))
+            if done:
+                try:
+                    done(_public(job))
+                except Exception as exc:
+                    store.log("error", "After saving a DVD from the Inbox: %s" % exc)
+    threading.Thread(target=run, daemon=True, name="inbox-dvd").start()
+    return _public(job)

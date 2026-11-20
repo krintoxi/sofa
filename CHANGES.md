@@ -6,6 +6,24 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+
+## 1.5.39 (2026-11-20)
+
+What ripping programs leave, dropped in the Inbox, is filed properly:
+
+- **A disc's titles named like title_t00.mkv** (B1_t00.mkv, title00.mkv, VTS_01_1.mkv...) in a folder: the longest is
+  the film, named after the folder ("Heat (1995)", or a disc label like THE_MATRIX or ARRIVAL_2016), and the others go
+  into its folder's Extras, where they don't show up as films of their own. One on its own in the Inbox goes to Needs
+  Review, since nothing says what it is: they used to become a film called "title t00".
+- **A whole ripped DVD**: an .iso, or the folder a program saved the disc to (with VIDEO_TS in it), becomes one movie
+  with every sound and subtitle track and the chapters, nothing converted (Sofa's own disc reader). The DVD's files
+  go to Deleted once it's saved, kept a while as anything deleted is. Its VOB pieces used to become a film called
+  "VTS 01 1", and an .iso went to Needs Review.
+- A disc of a show's episodes (its name says Season, S01 or Complete) goes to Needs Review, to be opened with Save
+  from a folder or disc image and its titles given their episodes. A copy whose video is still scrambled goes there
+  too, with the reason.
+- Tried with made rips and discs (`tests/test_inbox_rips.py`); not yet with a real ripping program's output.
+
 ## 1.5.37 (2026-11-20)
 
 Free channels from the start.
