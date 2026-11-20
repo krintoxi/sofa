@@ -156,7 +156,7 @@ class Lists(unittest.TestCase):
         self.admin.call("/api/admin/live", {"remove": gone})
         self.assertEqual([p for p in Air.seen if p.endswith(".m3u")], [])     # none of them fetched a list
         status, server = self.admin.call("/api/live?for=server")
-        self.assertEqual([p["name"] for p in server["playlists"]], ["News"])
+        self.assertEqual([p["name"] for p in server["playlists"] if not p.get("builtin")], ["News"])
 
     def test_a_request_doesnt_wait_on_a_download_going_on(self):
         Air.slow = {"/news.m3u": 1.5}
@@ -208,7 +208,7 @@ class Lists(unittest.TestCase):
         status, server = self.admin.call("/api/live?for=server")
         self.assertEqual(status, 200)
         self.assertNotIn("channels", server)
-        self.assertEqual([(p["name"], p["count"], p["off"]) for p in server["playlists"]], [("News", 3, False)])
+        self.assertEqual([(p["name"], p["count"], p["off"]) for p in server["playlists"] if not p.get("builtin")], [("News", 3, False)])
         self.assertEqual(server["health"]["total"], 3)
         status, mine = self.viewer.call("/api/live?for=server")     # (anyone else asking that way: Live TV as it is for them)
         self.assertEqual(len(mine["channels"]), 3)

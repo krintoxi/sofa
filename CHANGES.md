@@ -6,6 +6,27 @@ has its own numbers and list: [deploy/sofa-box/CHANGES.md](deploy/sofa-box/CHANG
 A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: raise `__version__`, add a section
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
+## 1.5.37 (2026-11-20)
+
+Free channels from the start.
+
+- **Sofa's free channels.** Live TV has channels from the first minute, on a Sofa Box with no server and on any
+  Sofa: 18 channels their broadcasters stream free, for anyone, on their own websites. News (Bloomberg TV, Newsmax,
+  Scripps News, Court TV, Cheddar News, Yahoo Finance, FOX Weather, DW News, Al Jazeera English), classic TV (Retro
+  TV Network, Heartland, Rev'n) and Spanish-language news (France 24 Español, Canal Once, ADN Noticias, TeleFórmula,
+  América TeVé, TVN). With Classic Cinema and the decades, a new box has a full Live TV before any list is added.
+- **Each one checked**: an https stream from the broadcaster's own servers, its page and publisher written down,
+  played the way a browser on another site would (`tools/demo-seed.py channels sofa/freechannels.json --check`).
+  Never a FAST service's stream (Pluto, Samsung TV Plus, Plex, The Roku Channel, Tubi, Xumo...), a made-up browser
+  name, or a channel blocked outside its country.
+- **Numbered after a household's own**: from 101 on a Sofa with no lists, else from the next hundred after them, so
+  no number anyone knows moves.
+- **Server → Live TV** shows them as a list of their own, **Sofa's free channels**: **On / Off** (it's never
+  removed, only switched off) and **Visitors** (off until an admin turns it on; Visitors then play them straight
+  from the broadcaster). Never adult. Not on the public demo, which keeps its own list.
+- The rules for every channel list now also catch a FAST service's feed by its address (`.../...Samsung/...`), any
+  address at mjh.nz, and Pluto's short links.
+
 ## 1.5.36 (2026-11-19)
 
 Saving adult videos: back, and more of it.

@@ -1,0 +1,203 @@
+{
+ "about": "Sofa's own free channels: on every Sofa (and a Sofa Box) from the start, until someone switches them off under Server, Live TV. Only channels their broadcaster streams free, for anyone, on its own website, played as they are. Each one needs: name, url (an https HLS stream from the broadcaster's own servers), group, publisher, page (the broadcaster's own https page that offers the stream), kind, rights, and the check: python3 tools/demo-seed.py channels sofa/freechannels.json --check writes cors and checked. Never a FAST service's stream (Pluto, Samsung TV Plus, Plex, The Roku Channel, Tubi, Xumo and the like), a made-up browser name or referrer, a stream blocked outside its country, or a copy of a channel from anywhere but its broadcaster. Picked from Free-TV/IPTV's list and checked one by one.",
+ "channels": [
+  {
+   "name": "Bloomberg TV",
+   "url": "https://bloomberg.com/media-manifest/streams/us.m3u8",
+   "group": "News",
+   "publisher": "Bloomberg",
+   "page": "https://www.bloomberg.com/live/us",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Newsmax",
+   "url": "https://nmxlive.akamaized.net/hls/live/529965/Live_1/index.m3u8",
+   "group": "News",
+   "publisher": "Newsmax",
+   "page": "https://www.newsmaxtv.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Scripps News",
+   "url": "https://content.uplynk.com/channel/4bb4901b934c4e029fd4c1abfc766c37.m3u8",
+   "group": "News",
+   "publisher": "Scripps News",
+   "page": "https://scrippsnews.com/live",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Court TV",
+   "url": "https://content.uplynk.com/channel/6c0bd0f94b1d4526a98676e9699a10ef.m3u8",
+   "group": "News",
+   "publisher": "Court TV",
+   "page": "https://www.courttv.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Cheddar News",
+   "url": "https://hls.livecdn.io/cheddar.com/cheddar/playlist.m3u8",
+   "group": "News",
+   "publisher": "Cheddar",
+   "page": "https://cheddar.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Yahoo Finance",
+   "url": "https://d1ewctnvcwvvvu.cloudfront.net/playlist.m3u8",
+   "group": "News",
+   "publisher": "Yahoo Finance",
+   "page": "https://finance.yahoo.com/live/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "FOX Weather",
+   "url": "https://247wlive.foxweather.com/stream/index.m3u8",
+   "group": "News",
+   "publisher": "FOX Weather",
+   "page": "https://www.foxweather.com/live",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "DW News",
+   "url": "https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8",
+   "group": "News",
+   "publisher": "Deutsche Welle",
+   "page": "https://www.dw.com/en/live-tv/channel-english",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Al Jazeera English",
+   "url": "https://live-hls-apps-aje-fa.getaj.net/AJE/index.m3u8",
+   "group": "News",
+   "publisher": "Al Jazeera",
+   "page": "https://www.aljazeera.com/live/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Retro TV Network",
+   "url": "https://lukentvlive.vgcdn.net/v1/master/cef183924f24adfa3d5d7601c3a17769082c0c2b/retro/index.m3u8",
+   "group": "Entertainment",
+   "publisher": "Luken Communications",
+   "page": "https://www.myretrotv.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Heartland",
+   "url": "https://lukentvlive.vgcdn.net/v1/master/cef183924f24adfa3d5d7601c3a17769082c0c2b/heartland/index.m3u8",
+   "group": "Entertainment",
+   "publisher": "Luken Communications",
+   "page": "https://www.heartlandtv.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Rev'n",
+   "url": "https://lukentvlive.vgcdn.net/v1/master/cef183924f24adfa3d5d7601c3a17769082c0c2b/Revn/index.m3u8",
+   "group": "Entertainment",
+   "publisher": "Luken Communications",
+   "page": "https://revntv.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "France 24 Español",
+   "url": "https://live.france24.com/hls/live/2037220-b/F24_ES_HI_HLS/master_5000.m3u8",
+   "group": "En español",
+   "publisher": "France Médias Monde",
+   "page": "https://www.france24.com/es/en-vivo",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "Canal Once",
+   "url": "https://vivo.canaloncelive.tv/secureoncedos/oncedigital/playlist.m3u8",
+   "group": "En español",
+   "publisher": "Canal Once (IPN)",
+   "page": "https://canaloncetv.mx/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "ADN Noticias",
+   "url": "https://mdstrm.com/live-stream-playlist/60b578b060947317de7b57ac.m3u8",
+   "group": "En español",
+   "publisher": "TV Azteca",
+   "page": "https://www.adn40.mx/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "TeleFórmula",
+   "url": "https://mdstrm.com/live-stream-playlist/62f2c855f7981b5a5a2d8763.m3u8",
+   "group": "En español",
+   "publisher": "Grupo Fórmula",
+   "page": "https://www.radioformula.com.mx/teleformula/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "América TeVé",
+   "url": "https://live.gideo.video/americateve2/master.m3u8",
+   "group": "En español",
+   "publisher": "América TeVé",
+   "page": "https://americateve.com/",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  },
+  {
+   "name": "TVN",
+   "url": "https://mdstrm.com/live-stream-playlist/5653641561b4eba30a7e4929.m3u8",
+   "group": "En español",
+   "publisher": "TVN Chile",
+   "page": "https://www.tvn.cl/envivo",
+   "kind": "broadcaster",
+   "rights": "The broadcaster streams this channel free, for anyone, on its own website; Sofa plays that stream as it is.",
+   "cors": true,
+   "checked": "2026-11-20"
+  }
+ ]
+}

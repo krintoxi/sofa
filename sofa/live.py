@@ -153,6 +153,42 @@ def playlists():
     return config.get("live_playlists") or []
 
 
+# Sofa's own free channels (sofa/freechannels.json): a short list of channels their broadcasters stream free on their
+# own websites, checked one by one. In Live TV from the start, on a Sofa Box with no server and on any Sofa, until an
+# admin switches them off (Server, Live TV). Shown there as a list of its own that can't be removed or marked Adult.
+FREE_URL = "sofa:free-channels"
+FREE_NAME = "Sofa's free channels"
+FREE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "freechannels.json")
+
+
+def free_list():
+    """The built-in list as the Server page and Live TV show a list."""
+    return {"name": FREE_NAME, "url": FREE_URL, "builtin": True, "off": not config.get("free_channels"),
+            "public": bool(config.get("free_channels_public"))}
+
+
+def all_lists():
+    """The admin's lists, then Sofa's own (not on the public demo, which has its own checked list)."""
+    return playlists() + ([] if config.demo_on() else [free_list()])
+
+
+def free_channels():
+    """Sofa's own channels, in the shape the others are kept, in the file's order: only the ones that pass the public
+    demo's rules (an https stream from its broadcaster, no FAST service, no made-up browser name, not limited to a
+    country, a publisher, a page, a rights note and a browser check)."""
+    from . import demo
+    out = {}
+    for c in demo.read_channel_list(FREE_FILE):
+        if demo.channel_problems(c):
+            continue
+        cid = hashlib.sha1(c["url"].encode()).hexdigest()[:12]
+        out[cid] = {"id": cid, "name": str(c["name"])[:80], "url": c["url"], "group": str(c.get("group") or "Channels")[:40],
+                    "logo": None, "tvg": None, "geo": False, "headers": {}, "adult": False, "home": False,
+                    "lists": (FREE_URL,), "playlist": FREE_NAME, "free": True,
+                    "publisher": str(c["publisher"])[:80], "rights": str(c["rights"])[:300], "page": c["page"]}
+    return out
+
+
 NO_HEADERS = {}                       # (shared by every channel that names none: read, never changed)
 
 
@@ -581,6 +617,21 @@ def _build(force):
         c["number"] = last = FIRST_NUMBER + n + 1 + k
         c["lists"] = ()
         channels[c["id"]] = c
+    # then Sofa's own free channels, from the next hundred (101 on a Sofa with no lists), in their file's order: added
+    # or switched on, they move no channel a household already knows by its number. One that a list has too is the
+    # list's (one row).
+    free = free_channels() if config.get("free_channels") and not config.demo_on() else {}
+    start = FIRST_NUMBER if last < FIRST_NUMBER else (last // 100 + 1) * 100 + 1
+    for c in free.values():
+        if c["id"] in channels:
+            channels[c["id"]]["lists"] = channels[c["id"]].get("lists", ()) + (FREE_URL,)
+            continue
+        c["same"] = sys.intern("0|free|%s" % c["id"])
+        c["number"] = last = start
+        start += 1
+        channels[c["id"]] = c
+    _status[FREE_URL] = {"name": FREE_NAME, "url": FREE_URL, "count": len(free) if free else len(free_channels()),
+                         "error": None, "adult": False, "updated": None}
     m = max(ADULT_FIRST, (last // 1000 + 1) * 1000 + 1)
     for c in later:
         if c["same"] not in seen:
@@ -628,7 +679,7 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     _load_health()
     only_adult = bool(only_adult and adult and not public_only)
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
-    lists = [p for p in playlists() if bool(p.get("adult")) == only_adult]
+    lists = [p for p in all_lists() if bool(p.get("adult")) == only_adult]
     public = {p["url"] for p in lists if p.get("public") and not p.get("adult")} | ({"demo"} if config.demo_on() else set())
     with _lock:
         chans = sorted((c for c in _channels.values() if bool(c.get("adult")) == only_adult and visible(c)
@@ -736,14 +787,14 @@ def lists_shown(lists):
     """The channel lists as the Server page and Live TV show them: how many channels, what went wrong, on or off."""
     return [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0}), adult=bool(p.get("adult")),
                  public=bool(p.get("public")) and not p.get("adult"), off=bool(p.get("off")),
-                 adultish=not p.get("adult") and adultish(p.get("name"), p["url"]),
+                 adultish=not p.get("adult") and adultish(p.get("name"), p["url"]), builtin=bool(p.get("builtin")),
                  **({"works": list_counts(p["url"])} if p.get("adult") and not p.get("off") else {})) for p in lists]
 
 
 def summary(adult=False):
     """For the Server page, which asks every few seconds: the lists and the count of what answers, and no channels
     (thousands of them were built and sent each time, a megabyte for two short lines of the page)."""
-    return {"playlists": lists_shown([p for p in playlists() if adult or not p.get("adult")]),
+    return {"playlists": lists_shown([p for p in all_lists() if adult or not p.get("adult")]),
             "health": health(adult=adult), "reading": reading()}
 
 
@@ -752,7 +803,7 @@ def rev(user_id=None):
     again, Sofa's own lineup switched. A device with Live TV already loaded asks for this alone, and loads the
     channels again only when it's different (a list switched off in Server is gone from the TV's Live TV at once)."""
     seen = json.dumps([playlists(), _gen[0], [bool(config.get(k)) for k in
-                       ("live_headers", "live_check", "archive_channels", "retro_eras", "offline", "share_live", "share_cinema")]],
+                       ("live_headers", "live_check", "free_channels", "free_channels_public", "archive_channels", "retro_eras", "offline", "share_live", "share_cinema")]],
                       sort_keys=True)
     return hashlib.sha1(seen.encode()).hexdigest()[:12]
 
@@ -788,6 +839,8 @@ def adultish(name, url=""):
 
 def set_adult(url, on):
     """A list marked Adult: its channels leave Live TV for the Adult section's own page, and it can't be a Visitor's."""
+    if url == FREE_URL:
+        raise ValueError("Sofa's free channels are never adult.")
     pls = playlists()
     if not any(p["url"] == url for p in pls):
         raise ValueError("That channel list isn't on this Sofa.")
@@ -804,6 +857,9 @@ def add_playlist(name, url, adult=False):
 
 def set_public(url, on):
     """A list's channels for the public library's Visitors too (an admin's choice, list by list)."""
+    if url == FREE_URL:
+        config.update({"free_channels_public": bool(on)})
+        return
     pls = playlists()
     if not any(p["url"] == url for p in pls):
         raise ValueError("That channel list isn't on this Sofa.")
@@ -815,6 +871,9 @@ def set_public(url, on):
 def set_on(url, on):
     """A list switched off stays on the Server page (its address isn't lost) and none of its channels are in Live TV,
     for anyone; switched on, they're back."""
+    if url == FREE_URL:
+        config.update({"free_channels": bool(on)})
+        return
     pls = playlists()
     if not any(p["url"] == url for p in pls):
         raise ValueError("That channel list isn't on this Sofa.")
@@ -823,6 +882,9 @@ def set_on(url, on):
 
 
 def remove_playlist(url):
+    if url == FREE_URL:                                 # (Sofa's own: switched off, not lost)
+        config.update({"free_channels": False})
+        return
     config.update({"live_playlists": [p for p in playlists() if p["url"] != url]})
     _status.pop(url, None)
     _home.pop(url, None)

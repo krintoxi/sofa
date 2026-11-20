@@ -446,7 +446,7 @@ class Sharing(unittest.TestCase):
                 # Server → Live TV: this list for visitors too
                 self.assertEqual(self.admin.call("/api/admin/live", {"public": {"url": pub, "on": True}})[0], 200)
                 self.assertEqual(self.admin.call("/api/admin/live", {"public": {"url": "https://nope.example/x.m3u", "on": True}})[0], 400)
-                lists = {p["url"]: p["public"] for p in self.admin.call("/api/live")[1]["playlists"]}
+                lists = {p["url"]: p["public"] for p in self.admin.call("/api/live")[1]["playlists"] if not p.get("builtin")}
                 self.assertEqual(lists, {pub: True, home_only: False})
                 sh = self.admin.call("/api/admin/sharing", {"share_on": True})[1]
                 net = "203.0.113.9"

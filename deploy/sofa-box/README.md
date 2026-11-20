@@ -21,8 +21,9 @@ on a real box) · [The newest card](https://github.com/krintoxi/sofa/releases/ta
 - **Sofa from anywhere:** your Sofa Server at home, a Sofa Server on the internet (a share link someone
   sent you), **Sofa on the box itself** (no other computer needed), or your Jellyfin, Emby or Plex server.
   It plays with the box's own player (mpv, on the Pi's video chip), so most files play as they are.
-- **Free Live TV** has its own tile, and works with no server at all: Classic Cinema from the start, and the
-  free channel lists you add.
+- **Free Live TV** has its own tile, and works with no server at all: from the start, 18 news, classic-TV and
+  Spanish-language channels their broadcasters stream free, Classic Cinema and the decades, and the channel lists
+  you add.
 - **Streaming apps** (Netflix, YouTube, Prime Video, Disney+, Max, Hulu…), our own (Edge Music,
   The LJ Collection, LJ Fragrances) and anything else from the **App Store** open full screen, with
   no browser around them. **Home** brings you back; they keep playing.
@@ -359,8 +360,10 @@ you've added (open one, make it the one Sofa opens with, or remove it). Inside S
 
 The **Live TV** tile opens Live TV in the Sofa it opens with, or in Sofa on the box. Channels play in the
 box's own player: up and down change the channel.
-- **Live now:** today's channels, from the channel lists you add. A new box comes with none: add the ones you
-  want from Live TV (the community lists from iptv-org are one press each).
+- **Live now:** today's channels. A new box comes with **Sofa's free channels**: 18 channels their broadcasters
+  stream free on their own websites, checked one by one (news, weather and business, classic TV, and news in
+  Spanish), from 101. Add more lists from Live TV (the community lists from iptv-org are one press each); their
+  channels come first and keep their numbers. Server → Live TV switches Sofa's free channels off.
 - **Classic Cinema:** classic movies, film noir, westerns, silent films, cartoons, classic TV and documentaries,
   on 20 to 28.
 - **The decades:** 2009–2012, the 2000s, 90s, 80s, 70s, 60s and 50s, TV as it went out, most of it whole

@@ -38,8 +38,11 @@ FAST_HOSTS = (
     "pluto.tv", "plutotv.net", "samsungtvplus.com", "samsung.wurl.tv", "wurl.tv", "wurl.com", "tubi.tv", "tubitv.com",
     "tubi.video", "plex.tv", "plex.direct", "roku.com", "therokuchannel.com", "xumo.com", "xumo.tv", "xumo-ott.com",
     "amagi.tv", "stirr.com", "distro.tv", "lgchannels.com", "freevee.com", "watchfree.vizio.com", "redbox.com",
-    "i.mjh.nz", "iptv-org.github.io", "frequency.stream",
+    "mjh.nz", "jmp2.uk", "iptv-org.github.io", "frequency.stream", "rakuten.tv", "vizio.com",
 )
+# ...and a stream address that names one of them in its path (a broadcaster's feed made for a FAST service, on a
+# shared delivery network: ".../WNNationalSamsung/...", ".../amg01076-...-samsungnz/...")
+FAST_PATH = re.compile(r"samsung|pluto|xumo|vizio|rakuten|roku|tubi|plex|freevee|lgchannels|stirr|distro", re.I)
 GEO = re.compile(r"geo-?block|\[geo|Ⓖ|vpn|unblock", re.I)
 _lock = threading.Lock()
 _hits = {}
@@ -99,6 +102,8 @@ def channel_problems(c):
         out.append("not an https stream")
     if any(host == h or host.endswith("." + h) for h in FAST_HOSTS):
         out.append("a FAST service's stream (%s): their terms allow their own apps only" % host)
+    elif FAST_PATH.search(urllib.parse.urlsplit(url).path + "?" + urllib.parse.urlsplit(url).query):
+        out.append("a feed made for a FAST service (its address says so): their terms allow their own apps only")
     for k in ("headers", "user_agent", "ua", "referer", "referrer", "http-user-agent", "http-referrer"):
         if c.get(k):
             out.append("asks for a made-up browser name or referrer (%s)" % k)
