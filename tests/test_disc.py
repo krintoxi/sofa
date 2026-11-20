@@ -1030,7 +1030,7 @@ class RecordingAPlayer(Discs):
                                                                [("0", "Built-in Microphone"), ("1", "USB2.0 PC CAMERA Audio")]))
         self.assertEqual(capture.parse_dshow(self.DSHOW), (["Integrated Webcam", "USB Video"], ["Microphone (Realtek Audio)", "Digital Audio Interface (USB Video)"]))
         with mock.patch.object(capture, "_run", return_value=self.AV), mock.patch.object(capture.sys, "platform", "darwin"), \
-                mock.patch.dict(os.environ, {"SOFA_CAPTURE": ""}):
+                mock.patch.object(capture.media, "tool", return_value="ffmpeg"), mock.patch.dict(os.environ, {"SOFA_CAPTURE": ""}):
             self.assertEqual(capture.devices(), [{"id": "av:1", "name": "USB2.0 PC CAMERA", "audio": "av:1"}])     # (not the Mac's own camera, nor the screen)
         sysfs = os.path.join(self.work, "v4l")
         for n, name, index in (("video0", "USB2.0 PC CAMERA", "0"), ("video1", "USB2.0 PC CAMERA", "1"), ("video10", "bcm2835-codec-decode", "0")):
@@ -1061,10 +1061,12 @@ class RecordingAPlayer(Discs):
             self.assertEqual(capture.start(capture.TEST, "A Shop Film", "1999", minutes=1, who="the test"), {"ok": True, "name": "A Shop Film (1999)"})
             with self.assertRaisesRegex(ValueError, "being recorded already"):
                 capture.start(capture.TEST, "Another")
-            time.sleep(3)
+            end = time.time() + 30                                                       # (some seconds of picture: a slow computer takes longer)
+            while time.time() < end and (capture.status()["job"].get("size") or 0) < 200000:
+                time.sleep(0.2)
             st = capture.status()["job"]
             self.assertEqual((st["state"], st["name"], st["minutes"]), ("working", "A Shop Film (1999)", 1))
-            self.assertGreaterEqual(st["seconds_done"], 2)
+            self.assertGreaterEqual(st["seconds_done"], 1)
             self.assertTrue(capture.stop())                                                # (the film ended: Stop)
             end = time.time() + 20
             while time.time() < end and capture.status()["job"]["state"] == "working":
