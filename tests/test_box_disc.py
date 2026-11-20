@@ -1,4 +1,4 @@
-"""Sofa Box OS 1.1.100: Save this disc on a box. A disc in the box's USB drive goes into Sofa on this box (its Movies,
+"""Sofa Box OS 1.1.100 and 1.1.102: Save this disc on a box. A disc in the box's USB drive goes into Sofa on this box (its Movies,
 Shows or Music) from Home: the box's own Sofa reads the disc and files it (sofa/disc.py, tests/test_disc.py), and the
 box's agent passes Home's questions to it.
 
@@ -110,6 +110,50 @@ class TheAgent(unittest.TestCase):
             low = read(name).lower()
             for word in ("libdvdcss", "libdvd-pkg", "libaacs", "libbdplus", "makemkv", "decss", "keydb"):
                 self.assertNotIn(word, low, "%s names %s" % (name, word))
+
+
+class ThePlayersMenu(unittest.TestCase):
+    """Menu while a disc from Home's tile plays: Save this disc, in one press, into Sofa on this box."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.agent = load("sofa-box-agent", SOFA_BOX_DEVTOOLS="0", SOFA_BOX_CAPTIVE_PORT="0")
+        cls.boxos = load("boxos")
+
+    def test_the_disc_goes_with_what_plays(self):
+        p = self.boxos.disc_payload({"dev": "/dev/sr0", "kind": "dvd", "label": "HOLIDAY"})
+        self.assertEqual(p["disc"], {"drive": "sr0", "kind": "dvd"})
+
+    def player(self, payload):
+        pl = self.agent.Player.__new__(self.agent.Player)
+        pl.payload, pl.rec, said = payload, None, []
+        pl.command = lambda *a: [] if a[:2] == ("get_property", "track-list") else 1
+        pl.osd = lambda **k: said.append(k)
+        return pl, said
+
+    def test_its_there_for_a_disc_and_not_otherwise(self):
+        with mock.patch.object(self.agent, "volume_now", return_value=(50, False)):
+            pl, _ = self.player({"disc": {"drive": "sr0", "kind": "dvd"}})
+            self.assertEqual(pl.menu_items()[0][0], "Save this disc")
+            pl, _ = self.player({"url": "http://x/y.mkv"})
+            self.assertNotIn("Save this disc", [i[0] for i in pl.menu_items()])
+
+    def test_ok_saves_it_while_it_plays(self):
+        pl, said = self.player({"disc": {"drive": "sr0", "kind": "dvd"}})
+        asked = []
+
+        def disc_save(ask=None):
+            asked.append(ask)
+            if ask is None:
+                return {"drives": [{"id": "sr0", "disc": {"kind": "dvd"}}], "jobs": []}
+            return {"ok": True} if ask["action"] == "start" else {"ok": True, "job": {"name": "Holiday", "to": "Movies"}}
+        with mock.patch.object(self.agent, "disc_save", disc_save), mock.patch.object(self.agent, "playing", return_value=True):
+            pl._save_disc("sr0")
+        self.assertEqual(asked, [{"action": "start"}, None, {"action": "save", "drive": "sr0", "quick": True}])
+        self.assertEqual(said, [{"toast": "Saving Holiday to Movies on this box. Keep watching: it carries on."}])
+        src = read("sofa-box-agent.py")
+        self.assertIn('items.append(["Save this disc", [(None, "to Sofa on this box")], 0, "disc"])', src)
+        self.assertIn("threading.Thread(target=self._save_disc, args=(drive,), daemon=True).start()", src)
 
 
 class Home(unittest.TestCase):
