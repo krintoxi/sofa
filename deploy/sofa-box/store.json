@@ -8,9 +8,10 @@
     {
      "id": "edge-music",
      "name": "Edge Music",
-     "url": "https://music.edgeventure.uk/?client=sofabox",
+     "url": "/box/music/",
+     "icon": "https://music.edgeventure.uk/apple-touch-icon.png",
      "color": "#FF2E88",
-     "about": "Our music platform: albums, artists, creators."
+     "about": "Our music platform, as an app made for the box: songs, albums, artists, stations, and the songs you like."
     },
     {
      "id": "lj-showroom",

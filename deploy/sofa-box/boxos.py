@@ -349,8 +349,10 @@ FIRST_APPS = ["edge-music", "lj-showroom", "lj-fragrances", "youtube-tv"]   # in
 # Addresses the store has changed since boxes installed them: an installed app keeps the address it was given, so
 # a box that still has the old one gets the new one. (Edge Music shows its TV layout when it's opened with
 # ?client=sofabox, and remembers it; 2026-11-08.)
+# 1.1.103: Edge Music is the box's own app now (music/, at /box/music/), not the website in a tab.
 MOVED_APPS = {
-    "edge-music": ({"https://music.edgeventure.uk", "https://music.edgeventure.uk/"}, "https://music.edgeventure.uk/?client=sofabox"),
+    "edge-music": ({"https://music.edgeventure.uk", "https://music.edgeventure.uk/", "https://music.edgeventure.uk/?client=sofabox"},
+                   "/box/music/"),
 }
 
 

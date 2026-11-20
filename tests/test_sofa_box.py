@@ -823,7 +823,7 @@ class BoxOS(unittest.TestCase):
         self.assertNotIn("somafm", self.ids())
 
     def test_opening_without_the_browser(self):
-        self.assertEqual(self.post("/box/api/open", {"id": "edge-music"})[1]["url"], "https://music.edgeventure.uk/?client=sofabox")
+        self.assertEqual(self.post("/box/api/open", {"id": "edge-music"})[1]["url"], self.base + "/box/music/")   # the box's own app (1.1.103)
         self.assertEqual(self.post("/box/api/open", {"id": "sofa", "hash": "#/movies"})[1]["url"], self.base + "/?tv=1#/movies")
         self.assertEqual(self.post("/box/api/open", {"url": "javascript:alert(1)"})[0], 400)
         self.assertEqual(self.post("/box/api/open", {"id": "not-installed"})[0], 400)
@@ -945,12 +945,13 @@ class BoxBluetooth(unittest.TestCase):
 
 class MovedApps(unittest.TestCase):
     """An app the store has since given a new address: a box that installed the old one gets the new one, once, and
-    nothing else on it changes (Edge Music's TV layout needs ?client=sofabox)."""
+    nothing else on it changes (Edge Music: the website, then its TV layout with ?client=sofabox, and since 1.1.103
+    the box's own app at /box/music/)."""
 
     def test_an_old_edge_music_address_is_moved(self):
         boxos, conf = load("boxos"), tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, conf, True)
-        new = "https://music.edgeventure.uk/?client=sofabox"
+        new = "/box/music/"                                                               # the box's own app, since 1.1.103
         self.assertEqual(boxos.store_entry("edge-music")["url"], new)                     # what a new box installs
         before = {"apps": [{"id": "edge-music", "name": "Edge Music", "kind": "web", "url": "https://music.edgeventure.uk",
                             "color": "#FF2E88", "ua": "", "icon_file": "edge-music.png"},
@@ -970,7 +971,7 @@ class MovedApps(unittest.TestCase):
 
     def test_a_box_already_moved_or_changed_by_hand_is_left_alone(self):
         boxos = load("boxos")
-        for url in ("https://music.edgeventure.uk/?client=sofabox", "https://music.edgeventure.uk/player.html"):
+        for url in ("/box/music/", "https://music.edgeventure.uk/player.html"):
             data = {"apps": [{"id": "edge-music", "url": url}]}
             self.assertFalse(boxos.moved_apps(data))
             self.assertEqual(data["apps"][0]["url"], url)

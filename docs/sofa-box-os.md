@@ -81,7 +81,7 @@ sofa-box-agent.py (127.0.0.1:8091) + boxos.py: the home screen, apps.json, the s
 | App | Address | Notes |
 |---|---|---|
 | Sofa | `http://127.0.0.1:8091/` | through the agent (the box's player) |
-| Edge Music | `https://music.edgeventure.uk/?client=sofabox` | repo krintoxi/EdgeVentureMusic; `?client=sofabox` gives its TV layout (remembered) |
+| Edge Music | `/box/music/` (the box's own app, since 1.1.103) | `deploy/sofa-box/music/` and `boxmusic.py`: the agent asks Edge Music's app API (repo krintoxi/EdgeVentureMusic), the page plays the song; sign-in by a code typed on a phone |
 | The LJ Collection: Showroom | `https://theljcollection.com/showroom.php` | repo krintoxi/TheLJCollection |
 | The LJ Collection: Manager | `https://theljcollection.com/manager.php` | needs its sign-in |
 | LJ Fragrances | `https://ljfragrances.uk` | |

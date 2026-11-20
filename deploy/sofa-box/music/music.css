@@ -1,0 +1,133 @@
+/* Edge Music on the box. Sized like the home screen: 1rem is 1/60 of the screen's width.
+   Made for a Pi 3 drawing in software: flat colours, no blur, no shadows, nothing that moves by itself. A press of
+   the remote changes the ring and nothing else. The four looks are the box's own (home/home.css). */
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 200 800; font-display: swap;
+  src: url(/box/fonts/bricolage-grotesque-latin-opsz-normal.woff2) format("woff2"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 400 700; font-display: swap;
+  src: url(/box/fonts/instrument-sans-latin-wght-normal.woff2) format("woff2"); }
+
+:root {
+  --bg: #0D0D10; --bg2: #18181E; --fg: #F6F6F8; --mist: #9C9CA8; --a: #FF2E88; --a2: #E8FF3A; --a-ink: #fff;
+  --tile: rgba(255,255,255,.06); --line: rgba(255,255,255,.1); --r: 1.1rem;
+  --display: "Bricolage Grotesque", "Avenir Next Condensed", "DejaVu Sans", sans-serif;
+  --text: "Instrument Sans", "Helvetica Neue", "DejaVu Sans", sans-serif;
+}
+[data-theme="terminal"] {
+  --bg: #020604; --bg2: #06120B; --fg: #C8FFD9; --mist: #5FAF7E; --a: #39FF88; --a2: #00E0FF; --a-ink: #021006;
+  --tile: rgba(57,255,136,.06); --line: rgba(57,255,136,.2); --r: .35rem;
+  --display: "DejaVu Sans Mono", ui-monospace, "SFMono-Regular", Menlo, monospace; --text: var(--display);
+}
+[data-theme="pirate"] {
+  --bg: #0A1220; --bg2: #11203A; --fg: #EFE6D2; --mist: #A5AEC0; --a: #E6B450; --a2: #C0392B; --a-ink: #1D1400;
+  --tile: rgba(239,230,210,.06); --line: rgba(230,180,80,.24); --r: .9rem;
+}
+[data-theme="sofa"] {
+  --bg: #0A0E1A; --bg2: #141A2B; --fg: #EDEFF6; --mist: #8C94AB; --a: #F4B740; --a2: #3CC8D8; --a-ink: #2B1D00;
+  --tile: rgba(237,239,246,.06); --line: rgba(237,239,246,.1); --r: 1.1rem;
+}
+
+* { box-sizing: border-box; }
+html { font-size: max(11px, calc(100vw / 60)); background: var(--bg); }
+body { margin: 0; min-height: 100vh; color: var(--fg); font: 1rem/1.4 var(--text); background: var(--bg); overflow-x: hidden; }
+html[data-nocursor], html[data-nocursor] * { cursor: none !important; }
+button, input { font: inherit; color: inherit; }
+button { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
+:focus { outline: none; }
+[hidden] { display: none !important; }
+img { display: block; }
+
+/* the ring: the one thing a press changes */
+[data-f].f { outline: .22rem solid var(--a); outline-offset: .28rem; }
+[data-f] { scroll-margin: 3.6rem 1rem 1.2rem; }      /* brought into view with its row's name above it */
+body.playing [data-f] { scroll-margin-bottom: 6.4rem; }   /* and clear of the bar at the foot, while there is one */
+
+.top { display: flex; align-items: center; gap: 2rem; height: 4.4rem; padding: 0 3rem; }
+.brand { display: flex; align-items: center; gap: .5rem; font: 800 1.5rem/1 var(--display); letter-spacing: -.01em; }
+.brand span { color: var(--a); }
+.mark { width: 1.5rem; height: 1.5rem; border-radius: .4rem; background: var(--a); position: relative; }
+.mark::after { content: ""; position: absolute; inset: .42rem; background: var(--bg); transform: rotate(45deg); }
+.tabs { display: flex; gap: .4rem; flex: 1; }
+.tabs button { padding: .5rem 1.05rem; border-radius: 2rem; color: var(--mist); font-weight: 600; }
+.tabs button[aria-current="page"] { background: var(--tile); color: var(--fg); }
+.tabs #tabAccount { margin-left: auto; border: .08rem solid var(--line); color: var(--fg); }
+
+main { padding: .6rem 3rem 7rem; }
+h1 { font: 800 2.6rem/1.05 var(--display); letter-spacing: -.02em; margin: .4rem 0 1.2rem; }
+h2 { font: 700 1.25rem/1.2 var(--display); margin: 1.6rem 0 .7rem; }
+.sub { color: var(--mist); }
+
+/* a row of cards: it moves under the ring, one card at a time */
+.row { display: flex; gap: 1rem; overflow: hidden; padding: .7rem; margin: -.7rem; }
+.grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1.2rem 1rem; }
+.card { flex: 0 0 8.2rem; width: 8.2rem; border-radius: var(--r); }
+.grid .card { width: auto; }
+.card .cv { width: 100%; aspect-ratio: 1; border-radius: var(--r); background: var(--bg2); object-fit: cover; }
+.card b { display: block; margin-top: .45rem; font-weight: 600; font-size: .86rem; line-height: 1.25; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card small { display: block; color: var(--mist); font-size: .74rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card.round .cv { border-radius: 50%; }
+.cv.blank { display: grid; place-items: center; font: 800 2.6rem/1 var(--display); color: var(--a); }
+
+/* a list of songs */
+.songs { display: flex; flex-direction: column; gap: .15rem; }
+.song { display: grid; grid-template-columns: 2.6rem 1fr 14rem 3.2rem; align-items: center; gap: 1rem; padding: .4rem .7rem; border-radius: .7rem; width: 100%; }
+.song img, .song .cv { width: 2.6rem; height: 2.6rem; border-radius: .4rem; background: var(--bg2); object-fit: cover; }
+.song b { font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.song span { color: var(--mist); font-size: .86rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.song time { color: var(--mist); font-size: .86rem; text-align: right; font-variant-numeric: tabular-nums; }
+.song.on b { color: var(--a); }
+.song .heart { color: var(--a); margin-right: .4rem; }
+
+/* an album, artist, station or playlist */
+.hero { display: flex; gap: 2rem; align-items: flex-end; margin: .4rem 0 1.6rem; }
+.hero .cv { width: 13rem; height: 13rem; border-radius: var(--r); background: var(--bg2); object-fit: cover; flex: none; }
+.hero .kind { color: var(--a); font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; }
+.hero h1 { margin: .3rem 0 .4rem; }
+.acts { display: flex; gap: .7rem; margin-top: 1.1rem; }
+.btn { padding: .7rem 1.5rem; border-radius: 2rem; background: var(--tile); border: .08rem solid var(--line); font-weight: 700; }
+.btn.go { background: var(--a); border-color: var(--a); color: var(--a-ink); }
+
+/* search: letters to pick with the remote, or type on a keyboard or the phone */
+.find { display: grid; grid-template-columns: 22rem 1fr; gap: 2.4rem; align-items: start; }
+.typed { min-height: 3rem; padding: .6rem 1rem; border-radius: .8rem; background: var(--tile); border: .08rem solid var(--line); font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
+.typed:empty::before { content: "Song, artist, genre…"; color: var(--mist); font-weight: 400; }
+.keys { display: grid; grid-template-columns: repeat(7, 1fr); gap: .35rem; }
+.keys button { height: 2.7rem; border-radius: .6rem; background: var(--tile); text-align: center; font-weight: 700; }
+.keys .wide { grid-column: span 2; font-size: .8rem; }
+
+/* now playing */
+#now { position: fixed; inset: 0; background: var(--bg); display: grid; grid-template-columns: 24rem 1fr; gap: 3.5rem; align-items: center; padding: 3rem 5rem; z-index: 5; }
+#now .cv { width: 24rem; height: 24rem; border-radius: var(--r); background: var(--bg2); object-fit: cover; }
+#now .kind { color: var(--a); font-weight: 700; font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; }
+#now h1 { font-size: 3.2rem; margin: .5rem 0 .3rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#now .by { font-size: 1.5rem; color: var(--mist); }
+.seek { display: grid; grid-template-columns: 3.4rem 1fr 3.4rem; align-items: center; gap: 1rem; margin: 2rem 0 1.4rem; width: 100%; padding: .5rem .3rem; border-radius: .8rem; color: var(--mist); font-variant-numeric: tabular-nums; }
+.seek i { display: block; height: .4rem; border-radius: .4rem; background: var(--tile); overflow: hidden; }
+.seek i u { display: block; height: 100%; width: 100%; background: var(--a); transform-origin: 0 50%; transform: scaleX(0); }
+.seek time:last-child { text-align: right; }
+.ctl { display: flex; gap: .8rem; align-items: center; }
+.ctl button { width: 3.6rem; height: 3.6rem; border-radius: 50%; background: var(--tile); display: grid; place-items: center; }
+.ctl button svg { width: 1.5rem; height: 1.5rem; fill: currentColor; }
+.ctl .main { width: 4.6rem; height: 4.6rem; background: var(--a); color: var(--a-ink); }
+.ctl .main svg { width: 2rem; height: 2rem; }
+.ctl [aria-pressed="true"] { color: var(--a); }
+.next { margin-top: 1.6rem; color: var(--mist); font-size: .95rem; }
+.next b { color: var(--fg); font-weight: 600; }
+
+/* the bar at the foot: what's playing, while you look for something else */
+.bar { position: fixed; left: 3rem; right: 3rem; bottom: 1.2rem; height: 4rem; display: grid; grid-template-columns: 3rem 1fr auto; align-items: center; gap: 1rem;
+  padding: 0 1.2rem 0 .5rem; border-radius: 1rem; background: var(--bg2); border: .08rem solid var(--line); z-index: 4; }
+.bar img { width: 3rem; height: 3rem; border-radius: .6rem; object-fit: cover; }
+.bar b { display: block; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bar span { color: var(--mist); font-size: .84rem; }
+.bar em { font-style: normal; color: var(--a); font-weight: 700; font-size: .84rem; }
+
+/* signing in */
+.link { display: grid; grid-template-columns: 15rem 1fr; gap: 3rem; align-items: center; max-width: 50rem; margin-top: 1.5rem; }
+.qr { width: 15rem; height: 15rem; background: #fff; border-radius: 1rem; padding: 1rem; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.code { font: 800 3.4rem/1 var(--display); letter-spacing: .12em; color: var(--a); margin: .6rem 0 1rem; }
+.steps { color: var(--mist); font-size: 1.05rem; line-height: 1.6; }
+.steps b { color: var(--fg); }
+
+.toast { position: fixed; left: 50%; bottom: 6.2rem; transform: translateX(-50%); padding: .7rem 1.4rem; border-radius: 2rem; background: var(--fg); color: var(--bg); font-weight: 700; z-index: 9; }
+.empty { color: var(--mist); padding: 2rem 0; font-size: 1.1rem; }

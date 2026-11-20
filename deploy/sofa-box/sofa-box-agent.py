@@ -41,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boxos  # noqa: E402  (Sofa Box OS: apps, store, files, the browser's tabs)
 import boxservers  # noqa: E402  (the servers it plays from: Sofa at home, on the internet, on the box; Jellyfin, Emby, Plex)
+import boxmusic  # noqa: E402  (Edge Music, for the box's own app at /box/music/)
 
 PORT = int(os.environ.get("SOFA_BOX_PORT", "8091"))
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2650,6 +2651,7 @@ def thisbox_action(data):
         return {"ok": True, "message": "Sofa on the box is home only again."}
     return {"ok": False, "message": "Unknown action."}
 servers = boxservers.Servers(CONF_DIR, local_available=local_sofa.available)
+edge_music = boxmusic.Music(CONF_DIR, WEB_UA)      # Edge Music: its catalogue, and the account signed in on this box
 others_found = {"at": 0, "list": []}
 
 
@@ -5075,8 +5077,8 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
                            "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser",
-                           "/box/api/disc", "/box/api/install"))
-    READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")
+                           "/box/api/disc", "/box/api/music/catalog", "/box/api/music/account", "/box/api/install"))
+    READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/music/", "/box/fonts/")
 
     @classmethod
     def read_only(cls, path):
@@ -5214,7 +5216,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/box/preview":
             with open(os.path.join(HERE, "preview.html"), encoding="utf-8") as f:
                 return self.send(f.read(), "text/html; charset=utf-8")
-        if path.startswith(("/box/api/", "/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/fonts/")) or path == "/box/files/raw":
+        if path.startswith(("/box/api/", "/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/music", "/box/fonts/")) or path == "/box/files/raw":
             try:
                 return self.box_os(path, qs)
             except ValueError as exc:
@@ -5260,6 +5262,27 @@ class Handler(BaseHTTPRequestHandler):
             return self.send('{"error":"not found"}', status=404)
         if path.startswith("/box/games/"):
             return self.static(os.path.join(HERE, "games"), path[len("/box/games/"):] or "index.html")
+        if path in ("/box/music", "/box/music/"):          # Edge Music, the box's own app
+            return self.static(os.path.join(HERE, "music"), "index.html")
+        if path.startswith("/box/music/"):
+            return self.static(os.path.join(HERE, "music"), path[len("/box/music/"):])
+        if path.startswith("/box/api/music/"):             # what that app asks (boxmusic.py: the agent asks Edge Music)
+            what = path[len("/box/api/music/"):]
+            if self.command != "POST":
+                if what == "catalog":
+                    return self.send(json.dumps(edge_music.catalog()))
+                if what == "account":
+                    return self.send(json.dumps(edge_music.account()))
+                return self.send('{"error":"not found"}', status=404)
+            if what == "link":
+                return self.send(json.dumps(edge_music.link_cancel() if data.get("cancel") else edge_music.link_start()))
+            if what == "link/poll":
+                return self.send(json.dumps(edge_music.link_poll()))
+            if what == "unlink":
+                return self.send(json.dumps(edge_music.unlink()))
+            if what == "taste":
+                return self.send(json.dumps(edge_music.taste(data.get("action"), data.get("id"))))
+            return self.send('{"error":"not found"}', status=404)
         if path == "/box/api/thisbox/internet":            # Settings: Sofa on this box, from anywhere
             if self.command == "POST":
                 try:

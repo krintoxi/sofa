@@ -9,6 +9,30 @@ A new version: change the number in `deploy/sofa-box/VERSION`, add a section her
 GitHub builds the card and makes the release by itself.
 
 
+## 1.1.103
+
+**Edge Music is the box's own app now**, not the website in a tab. It opens at once, moves under the remote like
+Home does, and is drawn for a Pi: flat, nothing moving by itself, covers at the size they're shown.
+
+- **What's in it:** Home (albums, stations, artists, songs; and once signed in, the songs you like and what you played
+  lately), Songs, Albums, Artists, Stations, Search and your account. An album, artist, station or playlist has Play
+  and Shuffle and its songs.
+- **The remote:** the arrows move the ring, OK plays, Back goes one step (the player, then the page before, and from
+  the app's Home to the box's Home, the music going on). Play/Pause, Next and Previous work from anywhere, and so does the box's own "what's
+  playing". In the player, left and right on the song's line move through it ten seconds at a time.
+- **Search** with the remote (letters on the screen) or by typing on a keyboard or the phone. It looks through the
+  songs the box already has: nothing typed is sent anywhere.
+- **Sign in with a code.** Account → Get a code, then type it at music.edgeventure.uk/devices.php on a phone (or
+  point the phone at the square). The box never sees a password. Signed in, a song liked on the box is liked
+  everywhere. Listening needs no account.
+- **Same music, same accounts** as the website and the phone app: the box's agent asks Edge Music's app API
+  (`boxmusic.py`) and keeps the account's key to itself, in `~/.config/sofa-box/edge-music.json`; the page only plays
+  the song and shows covers. The catalogue is kept on the card, so the app opens while Edge Music is away.
+- **A box that has Edge Music already** gets the app in its place by itself (`MOVED_APPS`); a site added by hand
+  stays as it is. The website is still there in the Browser.
+- Not yet in the app: Spaces and messages, music videos, playlists' editing, songs from the wider network. A link
+  lasts 30 days, then the box asks for a new code.
+
 ## 1.1.102
 
 - **Save this disc from the player.** While a DVD or music CD from Home's disc tile plays, Menu has **Save this

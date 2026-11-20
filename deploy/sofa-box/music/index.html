@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="street" data-nocursor>
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Edge Music</title>
+<style>html, body { background: #0D0D10; }</style><!-- dark from the first frame -->
+<link rel="stylesheet" href="/box/music/music.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><i class="mark" aria-hidden="true"></i><b>Edge</b><span>Music</span></div>
+  <nav class="tabs" id="tabs" aria-label="Sections">
+    <button data-f data-tab="home">Home</button><button data-f data-tab="songs">Songs</button><button data-f data-tab="albums">Albums</button>
+    <button data-f data-tab="artists">Artists</button><button data-f data-tab="stations">Stations</button><button data-f data-tab="search">Search</button>
+    <button data-f data-tab="account" id="tabAccount">Sign in</button>
+  </nav>
+</header>
+<main id="view" tabindex="-1"></main>
+<section id="now" hidden aria-label="Now playing"></section>
+<button id="bar" class="bar" data-f hidden aria-label="Now playing"></button>
+<div id="toast" class="toast" hidden role="status"></div>
+<audio id="audio" preload="none"></audio>
+<script src="/box/home/qrcode.js"></script>
+<script src="/box/music/music.js"></script>
+</body>
+</html>
