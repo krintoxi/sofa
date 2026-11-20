@@ -307,7 +307,86 @@ def _note_arrival(entry, hint, size):
         store.log("inbox", "\"%s\" arrived: %s" % (rel, text[0].lower() + text[1:]), {"entry": rel, "files": count, "bytes": size})
 
 
+# The names ripping programs give a disc's titles, which say nothing of what's in them: title_t00.mkv, B1_t03.mkv,
+# title00.mkv, VTS_01_1.mkv, Title 1.mkv.
+RIP_NAME = re.compile(r"^(?:[a-z]\d?_?t\d{1,3}|title[\s_-]*t?\d{1,3}|t\d{2}|vts_\d\d_\d|(?:dvd|disc|disk|bd)[\s_-]*\d*|track[\s_-]*\d{1,3})$", re.I)
+
+
+def _rip_named(entry, videos):
+    """A ripping program's titles (title_t00.mkv...): in a folder, the longest is the film, named after the folder,
+    and the rest are its extras (they follow it into its folder's Extras); on their own in the Inbox, to Needs Review,
+    since nothing says what they are. Returns (the videos to file as usual, the extras)."""
+    generic = [v for v in videos if os.path.splitext(v)[1].lower() in naming.VIDEO_EXT and RIP_NAME.match(os.path.splitext(os.path.basename(v))[0])]
+    if not generic:
+        return videos, []
+    rest = [v for v in videos if v not in generic]
+    if not os.path.isdir(entry):
+        for v in generic:
+            _to_review(v, "Its name says nothing about what it is (%s is how a ripping program names a disc's titles). Name it "
+                          "like \"Movie Title (1999)%s\" and drop it in the Inbox again." % (os.path.basename(v), os.path.splitext(v)[1]))
+        return rest, []
+    from . import disc
+    folder = os.path.basename(entry.rstrip(os.sep))
+    title, year = naming.parse_movie(folder)
+    if re.match(r"^[A-Z0-9_]+$", folder):                 # (a disc's label: THE_MATRIX, ARRIVAL_2016)
+        title, year = naming.parse_movie(disc.tidy_label(folder))
+    if rest or not title:                              # (named files with them: those say what it is)
+        return videos, []
+    size = lambda v: os.path.getsize(v) if os.path.exists(v) else 0
+    first = main = max(generic, key=size)
+    name = naming.safe_filename("%s (%d)" % (title, year) if year else title)
+    renamed = os.path.join(os.path.dirname(main), name + os.path.splitext(main)[1].lower())
+    if not os.path.exists(renamed):
+        os.rename(main, renamed)
+        main = renamed
+    store.log("inbox", "\"%s\" is a ripped disc: its longest title is the film%s" % (folder, ", the other %d its extras" % (len(generic) - 1) if len(generic) > 1 else ""))
+    return [main], [v for v in generic if v != first]
+
+
+def _file_dvd(entry):
+    """A whole DVD in the Inbox (an .iso, or the folder a ripping program saved it to, with VIDEO_TS in it): its film
+    is saved as one movie, with every sound and subtitle track and the chapters (sofa/disc.py), and the DVD's own files
+    go to Deleted once it's done (kept there a while, as anything deleted is). Returns 0: it's filed in the background."""
+    from . import disc
+    base = os.path.basename(entry.rstrip(os.sep))
+    if base.upper() == "VIDEO_TS":
+        base = os.path.basename(os.path.dirname(entry.rstrip(os.sep)))
+    base = os.path.splitext(base)[0] if base.lower().endswith(".iso") else base
+    if naming.parse_episode(base) or naming.season_of_dir(base) is not None or re.search(r"\b(season|series|complete)\b", base, re.I):
+        _to_review(entry, "This looks like a disc of a show's episodes. Open it with Server -> Save from a folder or disc image to "
+                          "choose which titles are which episodes.")
+        return 0
+    title, year = naming.parse_movie(base)
+    if re.match(r"^[A-Z0-9_]+$", base):                 # (a disc's label: THE_MATRIX, ARRIVAL_2016)
+        title, year = naming.parse_movie(disc.tidy_label(base))
+
+    def done(job):
+        if job["state"] == "done":
+            try:
+                kept = _put_aside(entry)
+                store.log("inbox", "Saved %s from a DVD in the Inbox; the DVD's own files are in Deleted" % job["name"], {"kept": kept})
+            except OSError as exc:
+                store.log("error", "Saved %s, but the DVD's files couldn't be moved out of the Inbox: %s" % (job["name"], exc))
+        elif os.path.exists(entry):
+            _to_review(entry, job.get("error") or "It couldn't be saved.")
+    try:
+        disc.inbox_rip(entry, title or base, year, done=done)
+        store.log("inbox", "Saving \"%s\" from a DVD in the Inbox as one movie" % base)
+    except ValueError as exc:
+        if str(exc) != "busy":                         # (another disc is being saved: next time round)
+            _to_review(entry, str(exc))
+    except OSError as exc:
+        _to_review(entry, "The DVD couldn't be read: %s" % (exc.strerror or exc))
+    return 0
+
+
 def _handle(entry, hint=None):
+    if hint in (None, "movie", "show") and not _link_tree():
+        from . import disc
+        if disc.inbox_busy(entry):
+            return 0                                   # (a DVD from the Inbox being saved now)
+        if disc.rip_source(entry):
+            return _file_dvd(entry)
     if hint == "adult" and os.path.isdir(entry) and not _link_tree():
         target = _adult_folder_target(entry)
         if target:                                   # a category ("Hentai") or a collection: keep its shape
@@ -329,6 +408,9 @@ def _handle(entry, hint=None):
                     videos.append(os.path.join(d, f))
     filed = 0
     del _filed_now[:]
+    extras = []
+    if hint not in ("adult", "musicvideo") and not _link_tree():
+        videos, extras = _rip_named(entry, videos)
     collection = _collection_of(entry, videos) if hint != "musicvideo" else None
     if _link_tree():
         pass                                         # (link mode: link_drive says what it did, once)
@@ -363,6 +445,13 @@ def _handle(entry, hint=None):
                 store.log_private("review", "Couldn't move a private file (%s)" % exc.strerror, {"file": v, "error": str(exc)})
             else:
                 store.log("review", "Couldn't move %s: %s" % (os.path.basename(v), exc), {"file": v})
+    if extras and _filed_now:                              # a ripped disc's other titles: the film's extras
+        home = os.path.join(os.path.dirname(_filed_now[-1][1]), "Extras")
+        os.makedirs(home, exist_ok=True)
+        film = os.path.splitext(os.path.basename(_filed_now[-1][1]))[0]
+        for n, v in enumerate(sorted(extras), 1):
+            dest = _free_path(os.path.join(home, "%s - Extra %d%s" % (film, n, os.path.splitext(v)[1].lower())))
+            fileops.move(v, dest)
     if not _link_tree():                                   # (link mode: nothing else on the drive is touched)
         _sweep_leftovers(entry, private=hint == "adult", filed=_filed_now)
     return filed
