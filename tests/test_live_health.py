@@ -285,6 +285,7 @@ class ChannelsThatDontAnswer(unittest.TestCase):
                      "number": live.ADULT_FIRST}
         try:
             uid = store.q1("SELECT id FROM users WHERE name = 'air-viewer'")["id"]
+            live.mark(cid, True)                                                  # (seen playing: the Adult page shows only those)
             plain = {c["name"]: c["number"] for c in live.listing(uid)["channels"]}
             grown = {c["name"]: c["number"] for c in live.listing(uid, adult=True)["channels"]}
             self.assertNotIn("Gold", plain)

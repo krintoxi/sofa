@@ -153,3 +153,15 @@ A list marked Adult has its own page, **Adult → Live TV**, and its channels ar
 - Activity doesn't name an adult list, "Watching now" says "something private", and a Sofa Box's player and its
   phone remote show the channel's number, not its name.
 - A channel is adult when any list holding it is, whichever list was added first.
+
+**Only channels that play are shown.** Adult lists are short-lived: most of their channels are gone or broken at any
+time. The page is one plain list, by name, of the channels Sofa saw play in the last two days, and nothing else:
+
+- Sofa looks at an adult channel it hasn't seen lately before anything else, a few at a time, never two at once on the
+  same site, the way a viewer at home opens it. One that plays is looked at again a day later.
+- A channel whose last look got no video leaves the page at once, and is back as soon as a look, or someone watching
+  it, gets video again.
+- With none to show yet, the page says how far Sofa has got ("1 of 42 so far") and fills in by itself, or that none
+  played when Sofa last looked, or that checking is switched off.
+- **Server → Live TV** says under each adult list how many of its channels play, how many didn't and how many aren't
+  checked yet. A list that can't be read says why in plain words, such as a site name that doesn't exist any more.

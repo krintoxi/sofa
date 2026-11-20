@@ -945,6 +945,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     out.pop("down", None)
                 out.update(eras=[], away=away, rev=live.rev(), adult=True)
+                if not away:
+                    live.wanted()                       # (its channels get looked at: the page shows only what plays)
                 return self.json(out)
             if not visitor and (qs.get("for") or [""])[0] != "server":
                 live.wanted()                           # (Live TV is in use in this home: its channels get looked at)

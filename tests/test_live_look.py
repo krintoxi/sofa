@@ -109,6 +109,13 @@ def uid(name):
     return store.q1("SELECT id FROM users WHERE name = ?", name)["id"]
 
 
+def played(*paths):
+    """These channels (all, without any) were seen playing just now: the Adult page shows them."""
+    for c in live.all_channels(adult=True):
+        if not paths or any(c["url"].endswith("/%s/index.m3u8" % x) for x in paths):
+            live.mark(c["id"], True)
+
+
 def cid(path):
     return next(c["id"] for c in live.all_channels(adult=True) if c["url"].endswith("/%s/index.m3u8" % path))
 
@@ -166,6 +173,7 @@ class Adult(unittest.TestCase):
         late = {"Late One", "Late Two", "Plain"}                                  # (Plain is in the main list too: adult in any, adult)
         for who in ("look-plain", "look-admin"):
             self.assertFalse(late & {c["name"] for c in live.listing(uid(who), adult=who == "look-admin")["channels"]}, who)
+        played()                                                                  # (the Adult page shows only what played)
         mine = live.listing(uid("look-admin"), adult=True, only_adult=True)
         self.assertEqual({c["name"] for c in mine["channels"]}, late)
         self.assertEqual([p["name"] for p in mine["playlists"]], ["Late list"])
@@ -180,6 +188,7 @@ class Adult(unittest.TestCase):
 
     def test_over_the_web_only_someone_who_may_see_adult_gets_them(self):
         admin, plain, kid = (Someone(Air.sofa, n) for n in ("look-admin", "look-plain", "look-kid"))
+        played()
         got = admin.call("/api/live?adult=1")[1]
         self.assertEqual((got["adult"], len(got["channels"]), got["eras"]), (True, 3, []))
         self.assertFalse(any(c["adult"] for c in admin.call("/api/live")[1]["channels"]))
@@ -319,7 +328,7 @@ class InABrowser(unittest.TestCase):
             cls.chrome.kill()
         shutil.rmtree(cls.dir, ignore_errors=True)
 
-    def open(self, who, where, tv=True):
+    def open(self, who, where, tv=True, rows=True):
         p = self.page
         p.call("Page.navigate", {"url": Air.sofa + "/client/manifest.webmanifest"})
         time.sleep(0.4)
@@ -329,7 +338,8 @@ class InABrowser(unittest.TestCase):
         p.value("localStorage.clear(); sessionStorage.setItem('sofaPicked','1'); localStorage.setItem('sofa.liveEra','\"now\"');"
                 "localStorage.setItem('sofa.tv','%s'); localStorage.setItem('sofa.installAsk', Date.now()); 1" % ("true" if tv else "false"))
         p.call("Page.navigate", {"url": Air.sofa + "/?t=%f%s" % (time.time(), where)})
-        self.until("document.querySelectorAll('#dRows .g-row').length > 0")
+        if rows:
+            self.until("document.querySelectorAll('#dRows .g-row').length > 0")
         return p
 
     def until(self, expression, timeout=15):
@@ -383,6 +393,94 @@ class StandingBy(InABrowser):
         tries = [Air.seen.count(x) for x in ("/a3/index.m3u8", "/b3/index.m3u8")]
         self.assertTrue(1 <= tries[0] <= 2 and tries[1] == tries[0], tries)       # (each as often as the other: the stand-in isn't tuned twice)
 
+    def test_with_nothing_playing_yet_the_adult_page_says_so_plainly(self):
+        lists()
+        live.mark(cid("x1"), False, "it answered 404")
+        p = self.open("look-admin", "#/adult/live", rows=False)
+        self.until("!!document.querySelector('.lv-none')")
+        said = p.value("document.querySelector('.lv-none').textContent")
+        self.assertIn("None of these channels has played yet", said)
+        self.assertIn("1 of 3 so far", said)
+        self.assertFalse(p.value("!!document.querySelector('#dRows')"))
+
+
+class WorkingOnly(unittest.TestCase):
+    """Adult Live TV is one plain list of the channels Sofa saw play lately, and nothing else."""
+
+    def setUp(self):
+        lists()
+        self.me = uid("look-admin")
+
+    def names(self):
+        return sorted(c["name"] for c in live.listing(self.me, adult=True, only_adult=True)["channels"])
+
+    def test_only_what_played_lately_is_listed_in_one_plain_list(self):
+        got = live.listing(self.me, adult=True, only_adult=True)
+        self.assertEqual((got["channels"], got["cats"]), ([], []))
+        self.assertEqual(got["checking"], {"total": 3, "checked": 0, "working": 0, "on": True, "cut_off": False})
+        played("x2", "a5")
+        live.mark(cid("x1"), False, "it answered 404")
+        got = live.listing(self.me, adult=True, only_adult=True)
+        self.assertEqual([c["name"] for c in got["channels"]], ["Late Two", "Plain"])        # (by name, no categories)
+        self.assertEqual((got["cats"], got["checking"]["checked"], got["checking"]["working"]), ([], 3, 2))
+        # played, but longer ago than Sofa keeps it for: not shown until it plays again
+        live._health[cid("x2")]["at"] -= live.ADULT_FRESH + 60
+        self.assertEqual(self.names(), ["Plain"])
+
+    def test_a_channel_that_stops_drops_off_and_comes_back_when_it_plays(self):
+        played()
+        self.assertEqual(self.names(), ["Late One", "Late Two", "Plain"])
+        live.mark(cid("x1"), False, "it took too long")                          # (one look that didn't get video)
+        self.assertEqual(self.names(), ["Late Two", "Plain"])
+        live.answered(cid("x1"))                                                 # (someone watched it through Sofa)
+        self.assertEqual(self.names(), ["Late One", "Late Two", "Plain"])
+
+    def test_adult_channels_not_looked_at_lately_are_looked_at_first(self):
+        del live._first[:]                                                       # (no viewer's "didn't play" waiting)
+        store.ex("INSERT INTO live_favorites (user_id, channel) VALUES (?, ?)", self.me, cid("a1"))
+        live.wanted()
+        due, _ = live._due()
+        self.assertEqual({c["id"] for c in due[:3]}, {cid("x1"), cid("x2"), cid("a5")})
+        self.assertEqual(due[3]["id"], cid("a1"))                                # (then favourites, as before)
+        played()
+        due, _ = live._due()
+        self.assertFalse({cid("x1"), cid("x2"), cid("a5")} & {c["id"] for c in due})   # (looked at again a day later)
+
+    def test_each_adult_list_says_how_many_of_its_channels_play(self):
+        played("x1")
+        live.mark(cid("x2"), False, "it answered 404")
+        late = [p for p in live.summary(adult=True)["playlists"] if p["adult"]][0]
+        self.assertEqual(late["works"], {"working": 1, "failing": 1, "unchecked": 1})
+        self.assertFalse(any("works" in p for p in live.summary(adult=True)["playlists"] if not p["adult"]))
+        self.assertFalse(any("works" in p for p in live.summary(adult=False)["playlists"]))
+
+    def test_the_rules_stay(self):
+        played()
+        for who in ("look-plain", "look-kid"):                                  # (not allowed Adult: Live TV's own, none adult)
+            self.assertFalse(any(c.get("adult") for c in live.listing(uid(who), adult=False, only_adult=True)["channels"]))
+        self.assertEqual(live.listing(0, adult=True, public_only=True, direct_only=True, only_adult=True)["channels"], [])
+        self.assertEqual(live.listing(self.me, adult=True, direct_only=True, only_adult=True)["channels"], [])
+        self.assertFalse(any(c.get("adult") for c in live.listing(self.me, adult=True)["channels"]))
+
+    def test_a_list_whose_site_is_gone_says_so_and_a_plain_http_list_is_read(self):
+        import socket
+        import urllib.error
+        said = live.list_trouble(urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided, or not known")))
+        self.assertIn("doesn't exist any more", said)
+        self.assertIn("doesn't exist any more", live.list_trouble(urllib.error.URLError("[Errno -2] Name or service not known")))
+        self.assertIn("answered 404", live.list_trouble(urllib.error.HTTPError("http://x", 404, "", {}, None)))
+        # (an http:// list address is fine: this file's stand-in lists are plain http, and read)
+        self.assertTrue(Air.base.startswith("http://"))
+        late = [p for p in live.summary(adult=True)["playlists"] if p["adult"]][0]
+        self.assertEqual((late["count"], late["error"]), (3, None))
+
+    def test_over_the_web_the_page_gets_how_its_channels_stand(self):
+        admin = Someone(Air.sofa, "look-admin")
+        live._health_state["wanted"] = 0.0
+        got = admin.call("/api/live?adult=1")[1]
+        self.assertEqual((got["channels"], got["checking"]["total"], got["checking"]["working"]), ([], 3, 0))
+        self.assertGreater(live._health_state["wanted"], time.time() - 60)       # (opening it gets its channels looked at)
+
 
 class OnTheBox(InABrowser):
     """In a browser, as a Sofa Box's page: what the box's player is handed."""
@@ -400,6 +498,7 @@ class OnTheBox(InABrowser):
 
     def test_an_adult_channels_name_stays_on_the_adult_page(self):
         lists()
+        played()
         p = self.open("look-admin", "#/adult/live")
         self.assertEqual(p.value("document.querySelector('h1').textContent"), "Adult Live TV")
         self.assertEqual(p.value("document.title"), p.value("document.title").replace("Late", ""))

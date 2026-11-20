@@ -469,10 +469,28 @@ def _fetch_lists(force, only):
             os.replace(path + ".tmp", path)
             _errors.pop(url, None)
         except Exception as exc:
-            _errors[url] = str(exc)[:200]
+            _errors[url] = list_trouble(exc)
             store.log("live", "Couldn't update %s: %s" % ("an adult channel list" if pl.get("adult") else   # (no names of those)
                                                           "channel list \"%s\"" % name, _errors[url]))
         _home[url] = at_home(url)                       # (looking a name up can take a while: here, not in a request)
+
+
+def list_trouble(exc):
+    """Why a list couldn't be fetched, in words an admin can act on (the Server page shows it under the list)."""
+    reason = getattr(exc, "reason", exc)
+    if isinstance(reason, socket.gaierror) or "nodename nor servname" in str(exc) or "Name or service not known" in str(exc):
+        return "the site in its link doesn't exist any more (gone, or a typo in the link). Sofa tries again every hour"
+    if isinstance(exc, ValueError):
+        return str(exc)[:200]
+    if isinstance(exc, urllib.error.HTTPError):
+        return "its site answered %d: the list isn't at that address any more" % exc.code
+    if isinstance(exc, (socket.timeout, TimeoutError)) or "timed out" in str(exc):
+        return "its site took too long to answer"
+    fault = net.certificate_fault(exc)
+    if fault:
+        return "its site's certificate " + {"expired": "has run out", "name": "is for another address",
+                                             "self": "is one it signed itself"}.get(fault, "can't be checked")
+    return str(exc)[:200]
 
 
 def _build(force):
@@ -566,7 +584,10 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     a viewer who may see Adult (`adult`). `public_only`: a Visitor of the public library, who gets only the lists an
     admin marked for visitors. `direct_only`: away from home (and every Visitor), where a channel plays straight from
     where it's streamed or not at all: never through this Sofa, which would make the home's connection theirs (past a
-    channel's own country limits) and its upload a public broadcaster. Each such channel carries its own address (src)."""
+    channel's own country limits) and its upload a public broadcaster. Each such channel carries its own address (src).
+    The Adult page is one plain list of the channels Sofa saw play lately (`works`) and nothing else: adult lists are
+    short-lived, most of their channels are gone, and a page of them that didn't play was the page's whole trouble.
+    `checking` says how its channels stand while there are none to show."""
     _load_health()
     only_adult = bool(only_adult and adult and not public_only)
     favs = {r["channel"] for r in store.q("SELECT channel FROM live_favorites WHERE user_id = ?", user_id)}
@@ -584,6 +605,8 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
             if not src or c.get("geo"):                  # (marked for its own country only: it wouldn't play out here)
                 continue
         gone = bool(hide and down(c["id"]))
+        if only_adult and not works(c["id"]):
+            continue
         key = c.get("same") or c["id"]
         row = rows.get(key)
         if row is not None and not (row.get("down") and not gone):
@@ -621,6 +644,10 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
     for row in out:
         if not cats or cats[-1] != row["group"]:
             cats.append(row["group"])
+    if only_adult:
+        out.sort(key=lambda r: (r["name"].lower(), r.get("number") or 0))
+        return {"down": 0, "cats": [], "playlists": lists_shown(lists), "channels": out,
+                "checking": adult_state(chans)}
     return {"down": gone, "cats": cats,
             "playlists": [] if public_only else lists_shown(lists),
             "channels": out}
@@ -639,7 +666,8 @@ def lists_shown(lists):
     """The channel lists as the Server page and Live TV show them: how many channels, what went wrong, on or off."""
     return [dict(_status.get(p["url"], {"name": p.get("name"), "url": p["url"], "count": 0}), adult=bool(p.get("adult")),
                  public=bool(p.get("public")) and not p.get("adult"), off=bool(p.get("off")),
-                 adultish=not p.get("adult") and adultish(p.get("name"), p["url"])) for p in lists]
+                 adultish=not p.get("adult") and adultish(p.get("name"), p["url"]),
+                 **({"works": list_counts(p["url"])} if p.get("adult") and not p.get("off") else {})) for p in lists]
 
 
 def summary(adult=False):
@@ -956,6 +984,41 @@ def mark(cid, ok, why="", at_once=False):
     return True
 
 
+ADULT_FRESH = 2 * CHECK_OK_EVERY     # an adult channel is shown when it played within this (looked at daily while it does)
+
+
+def works(cid, now=None):
+    """Seen playing lately: its last look (or a viewer's watching) got video, within ADULT_FRESH. Never looked at, or
+    the last look failed, or too long ago: no."""
+    h = _health.get(cid)
+    return bool(h and h.get("ok") and (now or time.time()) - h.get("at", 0) <= ADULT_FRESH)
+
+
+def adult_state(chans=None):
+    """How the adult channels stand: how many there are, how many were looked at lately, how many play; and whether
+    Sofa is looking at all (the Adult page says so plainly when there's nothing to show yet)."""
+    _load_health()
+    now = time.time()
+    if chans is None:
+        with _lock:
+            chans = [c for c in _channels.values() if c.get("adult") and visible(c)]
+    ids = [c["id"] for c in chans]
+    fresh = [i for i in ids if i in _health and now - _health[i].get("at", 0) <= ADULT_FRESH]
+    return {"total": len(ids), "checked": len(fresh), "working": sum(1 for i in ids if works(i, now)),
+            "on": checking(), "cut_off": cut_off()}
+
+
+def list_counts(url):
+    """An adult list's channels on the Server page: how many play, how many didn't, how many not looked at yet."""
+    _load_health()
+    now = time.time()
+    with _lock:
+        ids = [c["id"] for c in _channels.values() if url in (c.get("lists") or ()) and visible(c)]
+    ok = sum(1 for i in ids if works(i, now))
+    unchecked = sum(1 for i in ids if i not in _health or now - _health[i].get("at", 0) > ADULT_FRESH)
+    return {"working": ok, "failing": len(ids) - ok - unchecked, "unchecked": unchecked}
+
+
 def cut_off():
     """Nothing on the internet has answered the last few looks: this home's connection looks off."""
     return len(_streak) >= OFFLINE_AFTER
@@ -1037,8 +1100,9 @@ def probe(chan, timeout=CHECK_TIMEOUT):
 
 
 def _due(now=None):
-    """The channels to look at now, in order: the ones a viewer just couldn't play, then people's favourites, then
-    the ones never looked at, then the longest ago."""
+    """The channels to look at now, in order: the ones a viewer just couldn't play, then adult channels not looked at
+    lately (a few hundred at most, and the Adult page shows only what played), then people's favourites, then the ones
+    never looked at, then the longest ago."""
     now = now or time.time()
     favs = favorites_anyone()
     with _health_lock:
@@ -1058,8 +1122,12 @@ def _due(now=None):
         every = CHECK_OK_EVERY if h.get("ok") else CHECK_AGAIN if h.get("fails", 0) < DOWN_AFTER else CHECK_DOWN_EVERY
         return h.get("at", 0) + every
 
+    def adult_new(c):
+        h = _health.get(c["id"])
+        return bool(c.get("adult")) and (not h or now - h.get("at", 0) > ADULT_FRESH)
+
     rest = sorted((c for c in chans if c["id"] not in first and when(c) <= now),
-                  key=lambda c: (c["id"] not in favs, when(c), c["id"]))
+                  key=lambda c: (not adult_new(c), c["id"] not in favs, when(c), c["id"]))
     return out + rest[:CHECK_BATCH], set(first)
 
 

@@ -8,6 +8,23 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
 
+## 1.5.34 (2026-11-19)
+
+Adult Live TV shows only channels that play.
+
+- **One plain list of what played lately.** Adult Live TV lists, by name and without categories, only the channels
+  Sofa saw play in the last two days. A channel whose last look got no video leaves at once and comes back when it
+  plays again.
+- **Its channels are looked at first.** An adult channel not looked at lately goes ahead of every other channel in the
+  background check (still a few at a time, one site at a time). Opening the page starts the check.
+- **It says how it stands.** With nothing to show yet: how many of its channels were checked so far (the page fills in
+  by itself), or that none played at the last look, or that checking is off. Server → Live TV says under each adult
+  list how many of its channels play, didn't, or aren't checked yet.
+- **A list that can't be read says why plainly**, for every list: a site name that doesn't exist any more, a page that
+  answered 404, a site that took too long, a certificate that ran out.
+- The rules are as before: adult channels only in the Adult section, for people allowed it who confirmed their age, at
+  home, never for visitors, Kids profiles, guests, a TV on the network or a public Sofa.
+
 ## 1.5.33 (2026-11-19)
 
 Two lawful ways to keep a disc Sofa can't read (a copy-protected DVD), on its page:
