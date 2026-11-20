@@ -2204,7 +2204,7 @@ function discPanel(dd) {
   }).join("");
   return `<div class="panel wide disc-panel"><h2>Disc drive</h2><p class="hint">Put a DVD or CD in this computer's drive to save it to your library. Or save one you have as a folder or a disc image.</p>
     <ul class="list">${drives}</ul>${jobs ? `<ul class="upload-list disc-jobs">${jobs}</ul>` : ""}
-    <div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div></div>`;
+    <div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button><button class="btn" data-record-open="1">Record from a capture device…</button></div></div>`;
 }
 function saveDiscDialog(id) {
   const x = (((adminData && adminData.disc) || discNow || {}).drives || []).find(v => v.id === id), k = x && x.disc;
@@ -2304,14 +2304,17 @@ async function loadDiscNow() {
   if (!document.hidden) {
     try { discNow = await api("/api/admin/disc"); } catch (e) { discNow = null; }
     const key = JSON.stringify(((discNow || {}).drives || []).map(x => [x.id, x.state, x.label, !!x.disc, x.disc && x.disc.problem]).concat(
-      ((discNow || {}).jobs || []).map(j => [j.id, j.state, j.state === "working" ? Math.round(j.done / (j.total || 1) * 20) : 0])));
+      ((discNow || {}).jobs || []).map(j => [j.id, j.state, j.state === "working" ? Math.round(j.done / (j.total || 1) * 20) : 0])).concat(
+      [(((discNow || {}).capture || {}).job || {}).state, Math.floor(((((discNow || {}).capture || {}).job || {}).seconds_done || 0) / 5),
+       (((discNow || {}).capture || {}).devices || []).length, ((discNow || {}).free_job || {}).state, Math.floor((((discNow || {}).free_job || {}).done || 0) / 5e6)]));
     if (key !== discNowKey) {
       discNowKey = key;
       const h = location.hash;
       if ((h === "" || h === "#/" || h.startsWith("#/disc")) && !Player.isOpen() && !document.querySelector(".dialog-scrim")) rerender();
     }
   }
-  const busy = ((discNow || {}).drives || []).some(x => x.reading) || ((discNow || {}).jobs || []).some(j => j.state === "working");
+  const busy = ((discNow || {}).drives || []).some(x => x.reading) || ((discNow || {}).jobs || []).some(j => j.state === "working") ||
+    (((discNow || {}).capture || {}).job || {}).state === "working" || ((discNow || {}).free_job || {}).state === "working";
   discTimer = setTimeout(loadDiscNow, busy ? 2500 : 10000);
 }
 const discName = x => (x.disc && x.disc.guess && x.disc.guess.name) || (x.disc && x.disc.album) || x.label || DISC_KIND[x.kind] || "Disc";
@@ -2368,11 +2371,73 @@ function viewDisc(id) {
       <div><h1>${esc(discName(x))}</h1>
         <p class="facts">${facts}</p>${tracks}
         ${g.summary ? `<p class="summary">${esc(g.summary)}</p>` : ""}
-        ${actions}${saving}${done}
+        ${actions}${discFree(x)}${dvd && k.protected ? discRecord(x, main || k.titles[0]) : ""}${saving}${done}
         <p class="fileline">${esc(x.name)}${x.label ? " · " + esc(x.label) : ""}${g.found ? " · details from " + esc(g.found) : ""}${x.copy ? ` · <button class="linkish" data-disc-unsource="${esc(x.id)}">Take it away</button>` : ""}</p>
       </div></div></section>
     <section class="page disc-more">${others}${list}</section>`;
 }
+/* A free copy (the Internet Archive has the film, free to keep), and recording what a DVD player plays (sofa/capture.py). */
+function discFree(x) {
+  const f = x.disc && x.disc.free, j = (discNow || {}).free_job;
+  if (j && j.state === "working") return `<div class="disc-saving"><b>${esc(j.name)} from the Internet Archive</b><span class="up-bar"><i style="width:${j.total ? Math.round(j.done / j.total * 100) : 5}%"></i></span>
+    <span>${esc(bytes(j.done))}${j.total ? " of " + esc(bytes(j.total)) : ""} · ${esc(j.why)}</span></div>`;
+  if (j && j.state === "done") return `<p class="disc-last">Saved ${esc(j.name)} from the Internet Archive (${esc(j.why)}).</p>`;
+  if (!f) return "";
+  return `<div class="disc-free"><b>Free to keep: ${esc(f.why)}</b><span>The Internet Archive has ${esc(f.title)}${f.year ? " (" + f.year + ")" : ""}${f.size ? ", " + esc(bytes(f.size)) : ""}. Sofa can download it into Movies.</span>
+    <div class="actions">${j && j.state === "failed" ? `<span class="disc-error">${esc(j.error)}</span>` : ""}<button class="btn primary" data-disc-free="${esc(x.id)}">${icon("i-download")}Get it free</button></div></div>`;
+}
+function discRecord(x, title) {
+  const c = (discNow || {}).capture || { devices: [] }, j = c.job, g = (x.disc && x.disc.guess) || {};
+  if (j && j.state === "working") {
+    const of = j.minutes ? j.minutes * 60 : 0;
+    return `<div class="disc-saving"><b>Recording ${esc(j.name)}</b><span class="up-bar"><i style="width:${of ? Math.min(100, Math.round(j.seconds_done / of * 100)) : 100}%"></i></span>
+      <span>${esc(clock(j.seconds_done))}${of ? " of " + esc(clock(of)) : ""} · from ${esc(j.device)} · ${esc(bytes(j.size || 0))}</span>
+      <button class="mini" data-record-stop="1">Stop</button></div>`;
+  }
+  const last = j && j.state !== "working" ? `<p class="disc-last ${esc(j.state)}">${j.state === "done" ? "Recorded " + esc(j.name) + " into Movies." + (j.error ? " " + esc(j.error) : "") : esc(j.error || "It didn't record.")}</p>` : "";
+  const mins = title ? Math.ceil(title.seconds / 60) + 2 : 0;
+  return `<div class="disc-record"><b>Record it from a DVD player</b>
+    <span>A DVD player plays it, its picture and sound go into a USB video capture stick plugged into this computer, and Sofa records what comes out, in real time, into Movies. Standard definition, one sound track.</span>
+    ${c.devices.length ? `<div class="actions"><select data-record-device aria-label="Capture device">${c.devices.map(d => `<option value="${esc(d.id)}">${esc(d.name)}${d.audio ? "" : " (no sound input found)"}</option>`).join("")}</select>
+      <button class="btn" data-record="${esc(x.id)}" data-name="${esc(g.name || discName(x))}" data-year="${esc(g.year || "")}" data-minutes="${mins}">${icon("i-rec")}Record${mins ? " " + esc(longTime(mins * 60)) : ""}</button></div>
+      <span class="hint">Start the film on the player, then press Record. It stops by itself at the end, or press Stop.</span>`
+      : `<span class="hint">No capture device is plugged in. Plug one in (with the player's yellow, red and white plugs in it) and it shows up here.</span>`}${last}</div>`;
+}
+function discRecordDialog() {
+  const c = (discNow || {}).capture || { devices: [] };
+  const d = openDialog(`<h2>Record from a capture device</h2>
+    <p>A DVD player, a VCR or a camcorder, through a USB video capture stick plugged into this computer. Sofa records what it plays, in real time, into Movies.</p>
+    ${c.devices.length ? `<form class="disc-form share-form"><label class="field"><span>Device</span><select name="device">${c.devices.map(v => `<option value="${esc(v.id)}">${esc(v.name)}</option>`).join("")}</select></label>
+      <div class="disc-two"><label class="field"><span>Name</span><input name="name" maxlength="120" placeholder="What it is"></label>
+      <label class="field small"><span>Year</span><input name="year" inputmode="numeric" maxlength="4" placeholder="optional"></label>
+      <label class="field small"><span>Minutes</span><input name="minutes" inputmode="numeric" maxlength="3" placeholder="until Stop"></label></div>
+      <p class="disc-error" role="alert" hidden></p>
+      <div class="actions"><button class="btn primary" type="submit">Record</button><button class="btn ghost" type="button" data-dismiss="1">Not now</button></div></form>`
+      : `<p class="hint">No capture device is plugged in now.</p><div class="actions"><button class="btn ghost" data-dismiss="1">Close</button></div>`}`);
+  const form = $("form", d);
+  if (!form) return;
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const err = $(".disc-error", d); err.hidden = true;
+    try { await api("/api/admin/disc", { action: "record", device: form.elements.device.value, name: form.elements.name.value, year: form.elements.year.value, minutes: form.elements.minutes.value });
+      closeDialog(); toast("Recording. Start the film on the player if it isn't playing."); discNowKey = ""; loadDiscNow(); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; }
+  });
+}
+document.addEventListener("click", async e => {
+  const t = e.target.closest && e.target.closest("[data-disc-free], [data-record], [data-record-stop], [data-record-open]");
+  if (!t) return;
+  try {
+    if (t.dataset.discFree) { const x = ((discNow || {}).drives || []).find(v => v.id === t.dataset.discFree), f = x && x.disc && x.disc.free;
+      t.disabled = true; await api("/api/admin/disc", { action: "free", name: f.title, year: f.year || null }); toast("Downloading " + f.title + " from the Internet Archive."); }
+    else if (t.dataset.record) { const dev = $("[data-record-device]"); t.disabled = true;
+      await api("/api/admin/disc", { action: "record", device: dev ? dev.value : "", name: t.dataset.name, year: t.dataset.year, minutes: t.dataset.minutes });
+      toast("Recording. Start the film on the player if it isn't playing."); }
+    else if (t.dataset.recordStop) { if (!confirm("Stop recording? What's recorded so far is kept.")) return; await api("/api/admin/disc", { action: "record_stop" }); }
+    else if (t.dataset.recordOpen) return discRecordDialog();
+  } catch (ex) { toast(ex.message); t.disabled = false; }
+  discNowKey = ""; loadDiscNow();
+});
 function discSourceDialog() {
   const d = openDialog(`<h2>Save from a folder or disc image</h2>
     <p>A DVD copied to this computer as a folder (the one with VIDEO_TS in it), an .iso disc image, or a music CD's .cue. It shows up like a disc in the drive, and saves the same way: every sound and subtitle track, the chapters, nothing converted.</p>

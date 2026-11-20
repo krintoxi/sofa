@@ -1006,6 +1006,120 @@ class WatchingTheDisc(Discs):
             disc.play_stop()
 
 
+class RecordingAPlayer(Discs):
+    """Record from a capture device: what a DVD player plays, through a USB capture stick, into Movies (sofa/capture.py)."""
+
+    AV = """[AVFoundation indev @ 0x7c] AVFoundation video devices:
+[AVFoundation indev @ 0x7c] [0] FaceTime HD Camera (Built-in)
+[AVFoundation indev @ 0x7c] [1] USB2.0 PC CAMERA
+[AVFoundation indev @ 0x7c] [2] Capture screen 0
+[AVFoundation indev @ 0x7c] AVFoundation audio devices:
+[AVFoundation indev @ 0x7c] [0] Built-in Microphone
+[AVFoundation indev @ 0x7c] [1] USB2.0 PC CAMERA Audio
+"""
+    DSHOW = """[dshow @ 0x1] "Integrated Webcam" (video)
+[dshow @ 0x1]   Alternative name "@device_pnp_x"
+[dshow @ 0x1] "USB Video" (video)
+[dshow @ 0x1] "Microphone (Realtek Audio)" (audio)
+[dshow @ 0x1] "Digital Audio Interface (USB Video)" (audio)
+"""
+
+    def test_the_inputs_each_computer_lists(self):
+        from sofa import capture
+        self.assertEqual(capture.parse_avfoundation(self.AV), ([("0", "FaceTime HD Camera (Built-in)"), ("1", "USB2.0 PC CAMERA"), ("2", "Capture screen 0")],
+                                                               [("0", "Built-in Microphone"), ("1", "USB2.0 PC CAMERA Audio")]))
+        self.assertEqual(capture.parse_dshow(self.DSHOW), (["Integrated Webcam", "USB Video"], ["Microphone (Realtek Audio)", "Digital Audio Interface (USB Video)"]))
+        with mock.patch.object(capture, "_run", return_value=self.AV), mock.patch.object(capture.sys, "platform", "darwin"), \
+                mock.patch.dict(os.environ, {"SOFA_CAPTURE": ""}):
+            self.assertEqual(capture.devices(), [{"id": "av:1", "name": "USB2.0 PC CAMERA", "audio": "av:1"}])     # (not the Mac's own camera, nor the screen)
+        sysfs = os.path.join(self.work, "v4l")
+        for n, name, index in (("video0", "USB2.0 PC CAMERA", "0"), ("video1", "USB2.0 PC CAMERA", "1"), ("video10", "bcm2835-codec-decode", "0")):
+            os.makedirs(os.path.join(sysfs, n))
+            for k, v in (("name", name), ("index", index)):
+                with open(os.path.join(sysfs, n, k), "w") as f:
+                    f.write(v + "\n")
+        cards = os.path.join(self.work, "cards")
+        with open(cards, "w") as f:
+            f.write(" 0 [vc4hdmi0       ]: vc4-hdmi - vc4-hdmi-0\n 1 [Camera         ]: USB-Audio - USB2.0 PC CAMERA\n")
+        real = capture._alsa_cards
+        with mock.patch.object(capture.sys, "platform", "linux"), mock.patch.object(capture.os, "name", "posix"), \
+                mock.patch.object(capture, "_alsa_cards", lambda: real(cards)), mock.patch.dict(os.environ, {"SOFA_CAPTURE": ""}):
+            self.assertEqual(capture.devices(sysfs), [{"id": "v4l:/dev/video0", "name": "USB2.0 PC CAMERA", "audio": "alsa:hw:CARD=Camera"}])
+        self.assertEqual(capture._inputs("v4l:/dev/video0", "alsa:hw:CARD=Camera"),
+                         ["-f", "v4l2", "-thread_queue_size", "512", "-i", "/dev/video0", "-f", "alsa", "-thread_queue_size", "1024", "-ac", "2", "-i", "hw:CARD=Camera"])
+        self.assertEqual(capture._inputs("av:1", "av:1")[-1], "1:1")
+        self.assertEqual(capture._inputs("ds:USB Video", "ds:Digital Audio Interface (USB Video)")[-1], "video=USB Video:audio=Digital Audio Interface (USB Video)")
+
+    @unittest.skipUnless(FFMPEG, "ffmpeg records")
+    def test_it_records_into_movies_and_stops(self):
+        from sofa import capture
+        with mock.patch.dict(os.environ, {"SOFA_CAPTURE": capture.TEST}):
+            with self.assertRaisesRegex(ValueError, "Give it a name"):
+                capture.start(capture.TEST, "", minutes=1)
+            with self.assertRaisesRegex(ValueError, "isn't plugged in"):
+                capture.start("v4l:/dev/video9", "X")
+            self.assertEqual(capture.start(capture.TEST, "A Shop Film", "1999", minutes=1, who="the test"), {"ok": True, "name": "A Shop Film (1999)"})
+            with self.assertRaisesRegex(ValueError, "being recorded already"):
+                capture.start(capture.TEST, "Another")
+            time.sleep(3)
+            st = capture.status()["job"]
+            self.assertEqual((st["state"], st["name"], st["minutes"]), ("working", "A Shop Film (1999)", 1))
+            self.assertGreaterEqual(st["seconds_done"], 2)
+            self.assertTrue(capture.stop())                                                # (the film ended: Stop)
+            end = time.time() + 20
+            while time.time() < end and capture.status()["job"]["state"] == "working":
+                time.sleep(0.1)
+            st = capture.status()["job"]
+        self.assertEqual((st["state"], st["error"]), ("done", None))
+        self.assertEqual(self.tree("movies"), ["A Shop Film (1999)/A Shop Film (1999).mkv"])          # (nothing hidden left behind)
+        got = probe(os.path.join(config.path("movies"), "A Shop Film (1999)", "A Shop Film (1999).mkv"))
+        self.assertEqual(sorted(x["codec_name"] for x in got["streams"]), ["aac", "h264"])
+        self.assertGreater(float(got["format"]["duration"]), 2)
+        with mock.patch.dict(os.environ, {"SOFA_CAPTURE": capture.TEST}):
+            with self.assertRaisesRegex(ValueError, "already there"):                       # never over a file
+                capture.start(capture.TEST, "A Shop Film", "1999", minutes=1)
+
+
+class AFreeCopy(Discs):
+    """The disc's film, when the Internet Archive has it free to copy (sofa/freecopy.py)."""
+
+    def archive(self, docs, files):
+        def get(url, timeout=20):
+            return {"response": {"docs": docs}} if "advancedsearch" in url else {"files": files}
+        return get
+
+    def test_only_what_anyone_may_copy(self):
+        from sofa import freecopy
+        config.update({"offline": False})
+        self.addCleanup(config.update, {"offline": True})
+        freecopy._found.clear()
+        self.addCleanup(freecopy._found.clear)
+        files = [{"name": "film_512kb.mp4", "format": "512Kb MPEG4", "size": "100"}, {"name": "film.mp4", "format": "h.264", "size": "900"}, {"name": "film.gif"}]
+        docs = [{"identifier": "trailer", "title": "His Girl Friday Trailer", "year": "1940", "licenseurl": "http://creativecommons.org/licenses/publicdomain/"},
+                {"identifier": "nc", "title": "His Girl Friday", "year": "1940", "licenseurl": "http://creativecommons.org/licenses/by-nc-nd/3.0/"},
+                {"identifier": "none", "title": "His Girl Friday", "year": "1940", "collection": ["feature_films"]},
+                {"identifier": "pd", "title": "His Girl Friday - 1940", "licenseurl": "http://creativecommons.org/licenses/publicdomain/"}]
+        hit = freecopy.find("His Girl Friday", 1940, get=self.archive(docs, files))
+        self.assertEqual((hit["id"], hit["title"], hit["year"], hit["why"], hit["file"]), ("pd", "His Girl Friday", 1940, "public domain", "film.mp4"))
+        self.assertIsNone(freecopy.find("Rules of Engagement", 2000, get=self.archive([dict(docs[1], title="Rules of Engagement", year="2000")], files)))
+        old = [{"identifier": "gen", "title": "The General", "year": "1926", "collection": ["silent_films", "feature_films"]}]
+        self.assertEqual(freecopy.find("The General", 1926, get=self.archive(old, files))["why"], "public domain (made in 1926)")
+        self.assertIsNone(freecopy.find("His Girl Friday", 1975, get=self.archive(docs, files)))      # (another film of that name)
+        config.update({"offline": True})
+        freecopy._found.clear()
+        asked = []
+        self.assertIsNone(freecopy.find("His Girl Friday", 1940, get=lambda *a, **k: asked.append(1)))
+        self.assertEqual(asked, [])
+
+    def test_the_page_offers_it(self):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        for text in ('data-disc-free="${esc(x.id)}">${icon("i-download")}Get it free', '{ action: "free", name: f.title, year: f.year || null }',
+                     '${dvd && k.protected ? discRecord(x, main || k.titles[0]) : ""}', '{ action: "record_stop" }', "Record from a capture device…"):
+            self.assertIn(text, js)
+
+
 class PlacingAFile(unittest.TestCase):
     def test_never_over_one_thats_there(self):
         work = tempfile.mkdtemp(prefix="sofa-disc-")

@@ -47,6 +47,20 @@ library by itself on any computer that has one installed. Sofa's reader never do
 packs in playing order, in the clear, or raises `dvd.Protected`. Everything that saves a title calls it by that
 name, so it is the one place to change how a title is read. Sofa ships nothing else to put there.
 
+## When Sofa can't read the disc
+
+A copy-protected disc's page offers two lawful ways to keep it:
+
+- **Get it free**: if the film is in the public domain (or under a licence that lets anyone copy it) and the
+  Internet Archive has it, Sofa downloads it into Movies. Only what the archive marks as free to copy is offered (a
+  public domain mark, CC0, a Creative Commons licence that allows copying), or a feature film made before 1929.
+- **Record it from a DVD player**: a DVD player's analog outputs (the yellow video plug, or S-video, and the red and
+  white sound) into a USB video capture stick plugged into the Sofa computer or a Sofa Box. Sofa records what the
+  player plays, in real time, into Movies. Standard definition, one sound track, no subtitles or chapters unless the
+  player draws them. Nothing on the disc is decrypted. Some discs send an analog copy signal (Macrovision) that makes
+  some sticks' picture flicker or darken; Sofa records what the stick gives it and does nothing about that signal. On
+  a Mac, the first recording asks whether Sofa may use a camera: a capture stick counts as one.
+
 ## Names for a music CD
 
 First the names the disc carries itself (CD-Text), where the drive gives them. Otherwise type them, or press **Look
