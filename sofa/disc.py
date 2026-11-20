@@ -336,6 +336,12 @@ def _describe(d):
             if not out["titles"] and not out["problem"]:
                 out["problem"] = "There's nothing on this DVD to save."
             out["guess"] = _guess(out["label"])
+            if out["guess"].get("found"):                   # the film, free to keep from the Internet Archive?
+                try:
+                    from . import freecopy
+                    out["free"] = freecopy.find(out["guess"]["name"], out["guess"].get("year"))
+                except Exception:
+                    out["free"] = None
         except dvd.NotVideo as exc:
             out["problem"] = str(exc)
         finally:
@@ -468,8 +474,11 @@ def status(wait=0):
                     row["label"] = row["disc"].get("label") or row["label"]
             out.append(row)
         jobs = [_public(j) for j in _jobs[-6:]]
+    from . import capture, freecopy
     return {"drives": out, "jobs": jobs, "lookup": bool(config.get("disc_lookup")) and not config.get("offline"),
-            "ffmpeg": bool(media.tool("ffmpeg"))}
+            "ffmpeg": bool(media.tool("ffmpeg")), "free_job": freecopy.status(),
+            "capture": slow.cached("capture-%s" % (os.environ.get("SOFA_CAPTURE") or ""), 10, capture.status, wait=8,
+                                   default={"devices": [], "job": None}) if not (capture._job.get("state") == "working") else capture.status()}
 
 
 def names(drive_id, fetch=None):

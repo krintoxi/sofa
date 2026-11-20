@@ -2231,4 +2231,10 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 .player.is-disc [data-act="rew"], .player.is-disc [data-act="fwd"] { visibility: visible; }
 .disc-badge { background: var(--amber) !important; }
 .disc-cant .actions { margin-top: 8px; }
+.disc-free, .disc-record { display: grid; gap: 6px; max-width: 64ch; margin: 14px 0 6px; padding: 14px 18px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); }
+.disc-free { border-color: rgba(94,211,160,.45); background: rgba(94,211,160,.07); } .disc-free b { color: var(--green); }
+.disc-free span, .disc-record > span { color: var(--soft); line-height: 1.5; } .disc-record .hint { color: var(--mist); font-size: 13px; }
+.disc-record select, .disc-form select { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: inherit; max-width: 100%; }
+.disc-free .actions, .disc-record .actions { margin-top: 6px; align-items: center; }
 .linkish { background: none; border: 0; padding: 0; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; }
+.disc-hero { height: auto !important; min-height: 0 !important; padding-top: 120px; } .disc-hero .hero-body { position: relative; align-items: flex-start; }

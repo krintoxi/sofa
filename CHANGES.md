@@ -7,6 +7,26 @@ A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: rais
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
+
+## 1.5.33 (2026-11-19)
+
+Two lawful ways to keep a disc Sofa can't read (a copy-protected DVD), on its page:
+
+- **Get it free**, when the film is free to keep and the Internet Archive has it: public domain, CC0, or a Creative
+  Commons licence that allows copying (as the archive marks it), or a feature film made before 1929. Sofa downloads
+  it into Movies, named and with its poster. His Girl Friday, Night of the Living Dead, Nosferatu and The General are;
+  a studio film from 2000 isn't, and isn't offered. What's asked of archive.org: the film's name and year.
+- **Record it from a DVD player**: any DVD player, its yellow, red and white plugs in a USB video capture stick, the
+  stick in the Sofa computer or a Sofa Box. Sofa records what the player plays, in real time, into Movies, named from
+  the disc's page and stopping by itself at the film's length (or on Stop; what's recorded is kept). Standard
+  definition, one sound track. Nothing on the disc is decrypted: the player plays it as it would to a TV. Some discs
+  send an analog copy signal (Macrovision) that makes some sticks' picture flicker; Sofa does nothing about it.
+  **Record from a capture device…** is on the Server page too, for a VCR or a camcorder. The computer's own cameras
+  and screens aren't offered.
+- Tried with a stand-in for the capture stick and archive.org's own answers. **No capture stick has been tried yet**
+  (Linux's, the Mac's and Windows's device lists are read from their real formats in the tests), and no free film was
+  downloaded in full.
+
 ## 1.5.32 (2026-11-19)
 
 - **A disc in the drive shows on Home** (admins), and opens a page of its own that looks like a movie's: what it is,

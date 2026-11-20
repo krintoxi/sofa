@@ -1670,6 +1670,15 @@ class Handler(BaseHTTPRequestHandler):
                 if data.get("action") == "play":          # watch it in Sofa's player
                     n = data.get("title")
                     return self.json(disc.play(str(data.get("drive") or ""), int(n) if str(n or "").isdigit() else None, u["name"]))
+                if data.get("action") == "record":        # Record from a capture device (a DVD player's picture and sound)
+                    from . import capture
+                    return self.json(capture.start(str(data.get("device") or ""), data.get("name"), data.get("year"), data.get("minutes"), u["name"]))
+                if data.get("action") == "record_stop":
+                    from . import capture
+                    return self.json({"ok": capture.stop()})
+                if data.get("action") == "free":          # the free copy found for the disc, from the Internet Archive
+                    from . import freecopy
+                    return self.json(freecopy.download(str(data.get("name") or ""), data.get("year") or None, u["name"]))
                 if data.get("action") == "add_source":    # Save from a folder or disc image
                     return self.json(disc.add_source(data.get("path")))
                 if data.get("action") == "remove_source":
