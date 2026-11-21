@@ -1051,3 +1051,16 @@ html:not(.lite) .gp .spt-rows { -webkit-mask-image: linear-gradient(to bottom, #
 .disc-page .disc-set { grid-template-columns: 12rem 1fr auto; }
 .disc-page .disc-set .size { color: var(--fg); font-size: 1rem; text-align: left; }
 .disc-page .disc-title { grid-template-columns: 2rem 1fr auto; }
+
+/* ---------- the terminal: a small window over the page ---------- */
+.term-win { position: fixed; z-index: 60; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(70rem, 88vw); height: min(40rem, 76vh);
+  display: grid; grid-template-rows: auto 1fr auto; border-radius: calc(var(--r) * .8); overflow: hidden; background: #0b0d10;
+  border: 1px solid var(--line); box-shadow: 0 2rem 6rem rgba(0,0,0,.6); }
+.term-bar { display: flex; align-items: center; gap: .8rem; padding: .6rem .9rem; background: #15181d; border-bottom: 1px solid var(--line); }
+.term-bar b { font-weight: 800; } .term-bar span { flex: 1; color: var(--mist); font-size: .82rem; }
+.term-out { margin: 0; padding: .8rem 1rem; overflow: auto; white-space: pre-wrap; word-break: break-all; color: #d7dde5;
+  font: .95rem/1.4 ui-monospace, "DejaVu Sans Mono", "Liberation Mono", monospace; }
+.term-in { display: flex; align-items: center; gap: .6rem; padding: .55rem 1rem; border-top: 1px solid var(--line); background: #11141a; }
+.term-in span { color: var(--a); font-weight: 800; }
+.term-line { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: #fff; font: 1rem ui-monospace, "DejaVu Sans Mono", monospace; }
+.term-win.ended .term-in { opacity: .6; }

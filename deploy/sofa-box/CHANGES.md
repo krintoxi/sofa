@@ -9,6 +9,17 @@ A new version: change the number in `deploy/sofa-box/VERSION`, add a section her
 GitHub builds the card and makes the release by itself.
 
 
+
+## 1.1.104
+
+- **A terminal on the box.** Settings → This box → **Open the terminal**: a small window over the page with a shell on
+  the box, as at a Linux computer's own keyboard. Type a command and Enter; up and down go through what was typed; Ctrl-C
+  (a button too, for a remote) stops what's running; what sudo asks for isn't shown as it's typed; Back or Close
+  closes it. A keyboard types in it, or the phone remote's Keyboard tab. It runs as the box's own user.
+- Only Home's own page reaches it (the box's address, with the box's own header): not a phone, not a site in the
+  box's browser, not a server's pages. The shell ends when the window is closed, or after an hour of nothing.
+- Tried with the box's agent on a Mac (`tests/test_box_terminal.py`); not on a Pi yet.
+
 ## 1.1.103
 
 **Edge Music is the box's own app now**, not the website in a tab. It opens at once, moves under the remote like

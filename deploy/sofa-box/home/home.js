@@ -1029,6 +1029,76 @@
     }
   }
 
+  // ---- the terminal: a small window over the page, a shell on the box (the agent's Terminal)
+  let termAt = 0, termTimer = 0, termHist = [], termHi = 0, termText = "";
+  function termApply(add) {                  // what the shell said, as a screen shows it: a return goes back along the line
+    let lines = termText.split("\n"), line = lines.pop();
+    for (const ch of add) {
+      if (ch === "\n") { lines.push(line); line = ""; }
+      else if (ch === "\r") line = "";
+      else if (ch === "\b") line = line.slice(0, -1);
+      else if (ch === "\x07") continue;
+      else line += ch;
+    }
+    lines.push(line);
+    termText = lines.slice(-3000).join("\n");
+  }
+  function termOpen() {
+    if ($(".term-win")) return focusTerm();
+    const w = document.createElement("div");
+    w.className = "term-win"; w.setAttribute("role", "dialog"); w.setAttribute("aria-label", "Terminal");
+    w.innerHTML = `<div class="term-bar"><b>Terminal</b><span>Runs on this box. A wrong command can stop it working.</span>
+      <button class="mini" data-term-key="ctrl-c">Ctrl-C</button><button class="mini" data-term-close="1">Close</button></div>
+      <pre class="term-out" aria-live="polite"></pre>
+      <div class="term-in"><span>›</span><input class="term-line" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Type a command, then Enter"></div>`;
+    document.body.appendChild(w);
+    termAt = 0; termText = "";
+    const input = $(".term-line", w);
+    input.addEventListener("keydown", e => {
+      e.stopPropagation();                   // (the page's own keys, the arrows and Back, stay out of it)
+      const send = body => api("/box/api/term", body).then(termPoll).catch(err => toast(err.message));
+      if (e.key === "Enter") { e.preventDefault(); const v = input.value; if (v.trim() && input.type !== "password") termHist.push(v); termHi = termHist.length; input.value = ""; send({ action: "input", text: v + "\n" }); }
+      else if (e.key === "ArrowUp" && input.type !== "password") { e.preventDefault(); if (termHi > 0) input.value = termHist[--termHi]; }
+      else if (e.key === "ArrowDown" && input.type !== "password") { e.preventDefault(); termHi = Math.min(termHist.length, termHi + 1); input.value = termHist[termHi] || ""; }
+      else if (e.key === "Escape" || e.key === "BrowserBack" || e.key === "GoBack") { e.preventDefault(); termClose(); }
+      else if (e.ctrlKey && (e.key === "c" || e.key === "d" || e.key === "z")) { e.preventDefault(); send({ action: "key", key: "ctrl-" + e.key }); }
+    });
+    w.addEventListener("click", e => {
+      const k = e.target.closest("[data-term-key]"), c = e.target.closest("[data-term-close]");
+      if (k) { api("/box/api/term", { action: "key", key: k.dataset.termKey }).then(termPoll).catch(err => toast(err.message)); focusTerm(); }
+      else if (c) termClose();
+      else focusTerm();
+    });
+    api("/box/api/term", { action: "open" }).then(termPoll).catch(err => { $(".term-out", w).textContent = err.message; });
+    focusTerm();
+  }
+  function focusTerm() { const i = $(".term-win .term-line"); if (i) { if (cur) cur.classList.remove("f"); i.focus(); } }
+  async function termPoll() {
+    clearTimeout(termTimer);
+    const w = $(".term-win");
+    if (!w) return;
+    try {
+      const r = await api("/box/api/term?from=" + termAt);
+      termAt = r.at;
+      if (r.out) {
+        termApply(r.out);
+        const o = $(".term-out", w); o.textContent = termText; o.scrollTop = o.scrollHeight;
+        const last = termText.split("\n").pop();
+        $(".term-line", w).type = /(password|passphrase)[^:]*:\s*$/i.test(last) ? "password" : "text";   // (what's typed for sudo isn't shown)
+      }
+      w.classList.toggle("ended", !r.running);
+      if (!r.running) $(".term-line", w).placeholder = "It has ended. Close, then open it again for a new one.";
+    } catch (e) {}
+    termTimer = setTimeout(termPoll, $(".term-win") && document.activeElement === $(".term-win .term-line") ? 300 : 1200);
+  }
+  function termClose() {
+    clearTimeout(termTimer);
+    api("/box/api/term", { action: "close" }).catch(() => {});
+    const w = $(".term-win"); if (w) w.remove();
+    const b = $("[data-term-open]"); if (b) focus(b);
+  }
+  document.addEventListener("click", e => { const t = e.target.closest && e.target.closest("[data-term-open]"); if (t) termOpen(); });
+
   // ---- settings
   async function loadInfo() {
     try { const [info, shield] = await Promise.all([api("/box/api/info"), api("/box/api/shield")]); info.shield = shield; boxInfo = info; }
@@ -1237,7 +1307,9 @@
           : b.installed ? `<dt>Installed</dt><dd>${esc(b.installed)}</dd>` : ""}</dl>
         <p class="credits-line">Built on ${esc(b.os || "Raspberry Pi OS")}, Chromium, mpv, FFmpeg and more free software, with games like Luanti. <button class="mini" data-go="#/credits">Credits and licences</button></p>
         <div class="choices" style="margin-top:1rem"><button class="btn" data-action="restart">Restart Sofa Box</button><button class="btn" data-action="reboot">Restart the box</button>
-        <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>`;
+        <button class="btn" data-go="#/welcome">Setup steps again</button></div></section>
+      <section class="card"><h3>Terminal</h3><p>Type commands that run on the box itself, as you would at a Linux computer's own keyboard. A keyboard, or the phone remote's Keyboard tab, types in it.</p>
+        <div class="choices"><button class="btn" data-term-open="1">${icon("#i-file")}Open the terminal</button></div></section>`;
     if (setTab === "software") return head("Software", `This is <b>Sofa Box OS ${esc(b.version)}</b>${softwareIs(b.software || {})}.`) +
       `<section class="card">${b.newest ? `<p class="update-ready"><b>Sofa Box OS ${esc(b.newest)} is ready.</b> Update the box to get it.</p>` : ""}
         <p>${s.channel === "testing" ? "It comes from GitHub: the newest Sofa Box OS, before it's been tried on a real box."

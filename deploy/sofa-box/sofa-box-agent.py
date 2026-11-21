@@ -2541,6 +2541,120 @@ class LocalSofa:
 local_sofa = LocalSofa()
 
 
+# ---------------------------------------------------------------- the terminal (Settings → This box → Terminal)
+
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|[=>78])")
+
+
+class Terminal:
+    """A shell on the box, in a window over Home: what the owner types runs as the box's own user, as it would at the
+    Pi's own keyboard (sudo works as the user's own rights allow). One at a time; it ends when it's closed, when the
+    shell ends, or after an hour of nothing. Only Home's own page reaches it (the box's address, with X-Sofa-Box):
+    not a phone, not a site in the box's browser, not a server's pages."""
+    MAX = 256 * 1024                                 # (what's kept of what it said: the newest)
+    IDLE = 3600
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.pid, self.fd, self.buf, self.base, self.used, self.code = None, None, bytearray(), 0, 0.0, None
+
+    def running(self):
+        return self.pid is not None
+
+    def start(self):
+        import pty
+        with self.lock:
+            if self.pid is not None:
+                return
+            pid, fd = pty.fork()
+            if pid == 0:                                # (the shell)
+                env = dict(os.environ, TERM="dumb", PS1=r"\u@\h:\w\$ ", PAGER="cat", SYSTEMD_PAGER="cat", GIT_PAGER="cat")
+                for k in ("SOFA_BOX_PORT", "SOFA_BOX_CONF"):
+                    env.pop(k, None)
+                try:
+                    os.chdir(os.path.expanduser("~"))
+                    os.execvpe("bash", ["bash", "--login"], env)
+                finally:
+                    os._exit(127)
+            self.pid, self.fd, self.buf, self.base, self.used, self.code = pid, fd, bytearray(), 0, steady(), None
+        threading.Thread(target=self._read, daemon=True, name="terminal").start()
+
+    def _read(self):
+        fd = self.fd
+        while True:
+            try:
+                ready, _, _ = select.select([fd], [], [], 30)
+                if not ready:
+                    if steady() - self.used > self.IDLE:
+                        return self.close()
+                    continue
+                data = os.read(fd, 65536)
+            except OSError:
+                data = b""
+            if not data:
+                break
+            with self.lock:
+                self.buf += data
+                if len(self.buf) > self.MAX:
+                    cut = len(self.buf) - self.MAX
+                    del self.buf[:cut]
+                    self.base += cut
+        self._ended()
+
+    def _ended(self):
+        with self.lock:
+            pid, self.pid = self.pid, None
+            fd, self.fd = self.fd, None
+        if pid:
+            try:
+                _, status = os.waitpid(pid, 0)
+                self.code = os.waitstatus_to_exitcode(status) if hasattr(os, "waitstatus_to_exitcode") else status
+            except OSError:
+                pass
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def read(self, since=0):
+        """What it said from `since` on (a count of what it has said in all), as text: {"running", "at", "out"}."""
+        with self.lock:
+            start = max(0, int(since) - self.base)
+            data, at = bytes(self.buf[start:]), self.base + len(self.buf)
+        text = ANSI.sub("", data.decode("utf-8", "replace")).replace("\r\n", "\n")
+        return {"running": self.pid is not None, "at": at, "out": text, "code": self.code}
+
+    KEYS = {"ctrl-c": b"\x03", "ctrl-d": b"\x04", "ctrl-z": b"\x1a", "tab": b"\t", "up": b"\x1b[A", "down": b"\x1b[B", "enter": b"\r"}
+
+    def write(self, text=None, key=None):
+        with self.lock:
+            fd = self.fd
+        if fd is None:
+            raise ValueError("The terminal isn't open.")
+        self.used = steady()
+        data = self.KEYS.get(key, b"") if key else str(text or "").encode("utf-8")
+        if not data:
+            raise ValueError("Which key?")
+        os.write(fd, data[:8192])
+
+    def close(self):
+        with self.lock:
+            pid = self.pid
+        if pid:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGHUP)
+            except OSError:
+                try:
+                    os.kill(pid, signal.SIGHUP)
+                except OSError:
+                    pass
+        return {"ok": True}
+
+
+terminal = Terminal()
+
+
 # ---------------------------------------------------------------- Save this disc (Home): into Sofa on this box
 
 def disc_save(ask=None):
@@ -5077,7 +5191,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
                            "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser",
-                           "/box/api/disc", "/box/api/music/catalog", "/box/api/music/account", "/box/api/install"))
+                           "/box/api/disc", "/box/api/music/catalog", "/box/api/music/account", "/box/api/term", "/box/api/install"))
     READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/music/", "/box/fonts/")
 
     @classmethod
@@ -5383,6 +5497,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(json.dumps(boxos.eject(str(data.get("dev") or ""))))
         if path == "/box/api/disc":                         # Save this disc: what's in the drive and how a save is going; POST saves, stops, looks names up
             return self.send(json.dumps(disc_save(data if self.command == "POST" else None)))
+        if path == "/box/api/term":                         # the terminal: GET what it said; POST open, a line, a key, close
+            if self.command != "POST":
+                return self.send(json.dumps(terminal.read(int((qs.get("from") or ["0"])[0] or 0))))
+            act = data.get("action")
+            if act == "open":
+                terminal.start()
+            elif act == "input":
+                terminal.write(text=data.get("text"))
+            elif act == "key":
+                terminal.write(key=str(data.get("key") or ""))
+            elif act == "close":
+                terminal.close()
+            else:
+                raise ValueError("Open, input, key or close.")
+            return self.send(json.dumps({"ok": True, "running": terminal.running()}))
         if path == "/box/api/disc/play":                    # a DVD, Blu-ray or music CD, in the box's player
             disc = devices_seen.get("disc")
             if not disc:

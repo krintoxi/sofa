@@ -1349,3 +1349,53 @@ def find_copies(most_seconds=8, most_dirs=6000):
                     found.append({"name": os.path.splitext(n)[0], "path": p, "copy": _is_copy(p), "where": place["name"],
                                   "shown": os.path.relpath(at, place["path"]).replace(os.sep, " › ") if at != place["path"] else ""})
     return found[:200]
+
+
+# ---------------------------------------------------------------- Play in VLC (a disc Sofa can't read, at the Sofa computer)
+
+VLC_SITE = "https://www.videolan.org/vlc/"
+
+
+def vlc():
+    """VLC on this computer, if it's been installed: its program (a Mac: the app), or None."""
+    if sys.platform == "darwin":
+        for d in ("/Applications", os.path.expanduser("~/Applications")):
+            app = os.path.join(d, "VLC.app")
+            if os.path.isdir(app):
+                return app
+        return None
+    if os.name == "nt":
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"), os.environ.get("LOCALAPPDATA")):
+            p = os.path.join(base or "", "VideoLAN", "VLC", "vlc.exe")
+            if base and os.path.isfile(p):
+                return p
+        return None
+    return shutil.which("vlc") or shutil.which("cvlc")
+
+
+def vlc_target(d, kind):
+    """What VLC is asked to open for the disc in drive `d`."""
+    scheme = {"dvd": "dvd", "bluray": "bluray", "cd": "cdda"}.get(kind, "file")
+    if os.name == "nt" and not d.get("image"):
+        return "%s:///%s:/" % (scheme, d["dev"][0])
+    where = d.get("mount") if kind != "cd" and d.get("mount") else d.get("dev") or d.get("mount")
+    return "%s://%s" % (scheme, where)
+
+
+def play_external(drive_id):
+    """Play in VLC: open the disc in drive `drive_id` in VLC, on this computer's screen, the way "Open with" would.
+    Sofa reads nothing of the disc for it. {"installed": False, "site"} when VLC isn't here."""
+    found = next((d for d in drives() if d["id"] == drive_id and d["state"] == "disc"), None)
+    if not found:
+        raise ValueError("There's no disc in that drive.")
+    exe = vlc()
+    if not exe:
+        return {"installed": False, "site": VLC_SITE}
+    target = vlc_target(found, found.get("kind") or "dvd")
+    cmd = ["open", "-a", exe, target] if sys.platform == "darwin" else [exe, target]
+    try:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as exc:
+        raise ValueError("VLC didn't open (%s)." % (exc.strerror or exc))
+    store.log("disc", "Opened %s in VLC" % (found.get("label") or "the disc"))
+    return {"installed": True, "ok": True}

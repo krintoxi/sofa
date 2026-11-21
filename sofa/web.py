@@ -1190,7 +1190,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/admin/disc/playing":      # how watching a disc is going (it stopped: why)
             return self.json(disc.play_status((qs.get("session") or [""])[0]))
         if path == "/api/admin/disc":              # Save this disc: the drives, what's in them, how a save is going
-            return self.json(_disc_status())
+            return self.json(dict(_disc_status(), here=self.network() == "local"))     # (here: at the Sofa computer itself)
         if path == "/api/admin/convert":
             return self.json(optimize.status(LIBRARY))
         if path == "/api/admin/duplicates":
@@ -1783,6 +1783,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json(disc.add_source(data.get("path")))
                 if data.get("action") == "remove_source":
                     return self.json(disc.remove_source(str(data.get("drive") or "")))
+                if data.get("action") == "play_external":  # Play in VLC: on the Sofa computer's own screen, so only from there
+                    if self.network() != "local":
+                        return self.error(403, "Play in VLC opens VLC on the Sofa computer's own screen: press it there.")
+                    return self.json(disc.play_external(str(data.get("drive") or "")))
                 if data.get("action") == "play_stop":
                     return self.json({"ok": disc.play_stop(str(data.get("session") or "")[:20] or "-")})
             except ValueError as exc:
