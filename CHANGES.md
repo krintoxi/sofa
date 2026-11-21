@@ -7,6 +7,16 @@ A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: rais
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
+
+## 1.5.43 (2026-11-21)
+
+- **Play in VLC**, on a copy-protected disc's page, when you're at the Sofa computer itself: Sofa opens the disc in
+  VLC on that computer's screen, the way "Open with" would; Sofa reads nothing of the disc for it. If VLC isn't
+  installed, it says so and links to VLC's own site, videolan.org. Not offered from other devices (VLC opens on the
+  Sofa computer's screen, so the button would do nothing you could see), nor on a Sofa Box.
+- Tried in Chrome on a Mac without VLC (the link) and with VLC's opening stood in for (`tests/test_disc.py`); not
+  with VLC installed.
+
 ## 1.5.42 (2026-11-20)
 
 Free to keep in Movies and Shows.

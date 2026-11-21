@@ -2550,7 +2550,7 @@ function viewDisc(id) {
     ${main.subs.length ? `<span>Subtitles: ${esc(named(main.subs))}</span>` : ""}</p>` : "";
   const to = { dvd: "Movies", cd: "Music", data: "the Inbox" }[k.kind];
   const actions = k.problem ? `<div class="disc-cant"><b>${k.protected ? "This disc is copy-protected" : "This disc can't be saved"}</b><span>${esc(k.problem)}</span>
-      ${k.protected ? `<div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}</div>`
+      ${k.protected ? `<div class="actions">${discNow.here && !NATIVE && (dvd || k.kind === "bluray") ? `<button class="btn primary" data-disc-vlc="${esc(x.id)}">${icon("i-play")}Play in VLC</button>` : ""}<button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}</div>`
     : `<div class="actions">
       ${dvd && main ? (NATIVE ? "" : `<button class="btn primary" data-disc-play="${esc(x.id)}">${icon("i-play")}Play</button>`) : ""}
       ${job ? "" : `<button class="btn${dvd && main && !NATIVE ? "" : " primary"}" data-disc-quick="${esc(x.id)}">${icon("i-download")}Save to ${esc(to)}</button>
@@ -2724,6 +2724,17 @@ document.addEventListener("click", async e => {
   if (t.dataset.discSource) return discSourceDialog();
   if (t.dataset.discUnsource) { await api("/api/admin/disc", { action: "remove_source", drive: t.dataset.discUnsource }).catch(ex => toast(ex.message)); location.hash = "#/"; discNowKey = ""; loadDiscNow(); }
 });
+async function discVlc(id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/admin/disc", { action: "play_external", drive: id });
+    if (r.installed) toast("Opening the disc in VLC…");
+    else openDialog(`<h2>Play in VLC</h2><p>VLC isn't on this computer yet. It's a free video player, from the people who make it at videolan.org. Install it, then press Play in VLC again.</p>
+      <div class="actions"><a class="btn primary" href="${esc(r.site)}" target="_blank" rel="noopener">Get VLC from videolan.org</a><button class="btn ghost" data-dismiss="1">Not now</button></div>`);
+  } catch (e) { toast(e.message); }
+  if (btn) btn.disabled = false;
+}
+document.addEventListener("click", e => { const t = e.target.closest && e.target.closest("[data-disc-vlc]"); if (t) discVlc(t.dataset.discVlc, t); });
 async function discQuick(id, btn) {
   if (btn) btn.disabled = true;
   let ok = false;

@@ -937,7 +937,7 @@ class FromAFolderOrImage(Discs):
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
             js = f.read()
-        self.assertIn('${k.protected ? `<div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}', js)
+        self.assertIn('<button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}', js)
         self.assertIn('{ action: "add_source", path: o.dataset.pickOpen }', js)
 
 
@@ -1149,6 +1149,42 @@ class RecordingByItself(Discs):
         self.addCleanup(config.update, {"offline": True})
         with mock.patch.object(metadata, "movie", return_value={"canonical": "I, Robot", "year": 2004, "summary": "Robots.", "source": "Wikipedia"}):
             self.assertEqual(disc._guess("SUMMER_AT_THE_LAKE_2004"), {"name": "Summer at the Lake", "year": 2004, "summary": None, "poster": False, "found": False})
+
+
+class PlayInVlc(Discs):
+    """Play in VLC: a disc Sofa can't read, opened in VLC on the Sofa computer (Sofa reads nothing of it for that)."""
+
+    def test_opens_vlc_or_points_to_it(self):
+        image = disc_images.iso(os.path.join(self.work, "film.iso"), {"VIDEO_TS/VIDEO_TS.IFO": b"x"}, label="A_FILM")
+        (d,) = self.put_in(image)
+        with mock.patch.object(disc, "vlc", return_value=None):
+            self.assertEqual(disc.play_external(d["id"]), {"installed": False, "site": "https://www.videolan.org/vlc/"})
+        with mock.patch.object(disc, "vlc", return_value="/usr/bin/vlc"), mock.patch.object(disc.sys, "platform", "linux"), \
+                mock.patch.object(subprocess, "Popen") as popen:
+            self.assertEqual(disc.play_external(d["id"]), {"installed": True, "ok": True})
+        self.assertEqual(popen.call_args[0][0], ["/usr/bin/vlc", "dvd://" + image])
+        with mock.patch.object(disc, "vlc", return_value="/Applications/VLC.app"), mock.patch.object(disc.sys, "platform", "darwin"), \
+                mock.patch.object(subprocess, "Popen") as popen:
+            disc.play_external(d["id"])
+        self.assertEqual(popen.call_args[0][0], ["open", "-a", "/Applications/VLC.app", "dvd://" + image])
+        with self.assertRaisesRegex(ValueError, "no disc"):
+            disc.play_external("nowhere")
+
+    def test_what_vlc_is_asked_to_open(self):
+        self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "dvd"), "dvd:///dev/sr0")
+        self.assertEqual(disc.vlc_target({"dev": "/dev/disk4", "mount": "/Volumes/A_FILM"}, "dvd"), "dvd:///Volumes/A_FILM")
+        self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "cd"), "cdda:///dev/sr0")
+        with mock.patch.object(disc.os, "name", "nt"):
+            self.assertEqual(disc.vlc_target({"dev": "D", "mount": "D:\\"}, "dvd"), "dvd:///D:/")
+
+    def test_only_at_the_sofa_computer(self):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "sofa", "web.py"), encoding="utf-8") as f:
+            web = f.read()
+        self.assertIn('if self.network() != "local":\n                        return self.error(403, "Play in VLC opens VLC', web)
+        with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn('discNow.here && !NATIVE && (dvd || k.kind === "bluray") ? `<button class="btn primary" data-disc-vlc=', js)
 
 
 class PickingACopy(Discs):

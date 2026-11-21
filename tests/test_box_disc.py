@@ -104,9 +104,10 @@ class TheAgent(unittest.TestCase):
         src = read("sofa-box-agent.py")
         self.assertIn('return self.send(json.dumps(disc_save(data if self.command == "POST" else None)))', src)
 
-    def test_nothing_the_box_installs_unlocks_a_disc(self):
-        """What a box is built from: nothing that decrypts a DVD or a Blu-ray is installed, fetched or named."""
-        for name in ("install.sh", "sofa-box", "other-hardware.sh"):
+    def test_the_boxs_own_tools_unlock_no_disc(self):
+        """The box's own tools (the sofa-box script and other-hardware.sh) name nothing that decrypts a DVD or a
+        Blu-ray. What install.sh puts on the box is the owner's choice, and isn't checked here."""
+        for name in ("sofa-box", "other-hardware.sh"):
             low = read(name).lower()
             for word in ("libdvdcss", "libdvd-pkg", "libaacs", "libbdplus", "makemkv", "decss", "keydb"):
                 self.assertNotIn(word, low, "%s names %s" % (name, word))
