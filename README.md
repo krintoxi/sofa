@@ -424,6 +424,9 @@ deleted. More: [docs/folder-structure.md](docs/folder-structure.md).
   Science Fiction, ...), narrowed by a filter box (name, genre, network, year) and by what you've
   watched. A genre page also lists titles with its name in the title (Adventure Time under
   Adventure). Home has a row for your biggest genres.
+- **Free to keep.** Movies and Shows each have a page of films and TV shows anyone may download and keep (public
+  domain or a free licence, from the Internet Archive), saved into your library with the licence beside them.
+  [docs/free-to-keep.md](docs/free-to-keep.md)
 - **Save from a link.** Paste the address of a video page (YouTube, Vimeo and well over a
   thousand other sites); Sofa downloads it with the free yt-dlp tool and files it. Not adult videos.
   Server → Downloads.

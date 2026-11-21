@@ -7,6 +7,28 @@ A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: rais
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
+## 1.5.42 (2026-11-20)
+
+Free to keep in Movies and Shows.
+
+- **Movies → Free to keep** and **Shows → Free to keep** (admins, at home): films and TV shows anyone may download and
+  keep, from the Internet Archive. Public domain, CC0 or a Creative Commons licence, or (with none) a film made before
+  1929. Saved films go into Movies as `Title (Year)`, a show's episodes into `Shows/<Show>/Season 1`, each with an `.nfo`
+  saying where it came from and under which licence.
+- **A new look, in both places.** A film on top, then rows: being saved, most watched, by kind and by decade. A title
+  page like a movie's, with the licence in plain words and whose word it is, where it goes and its size. Save progress
+  on the card and the page, then **In Movies** / **In Shows**. Real posters on a film's page when Sofa's movie lookup
+  knows the film. The Adult section's Free to keep shows its films as cards the same way, with the Archive's picture and
+  save progress.
+- **Never adult films** in Movies or Shows: the Archive's adult collection is left out of the search, and titles or
+  subjects that say sex or nudity too. They stay in the Adult section's own page.
+- **One source of free films.** The disc page's **Get it free** now uses Free to keep's licence rules and downloads (one
+  queue, one way of saving). It still keeps to marks that allow any use, as before.
+- Not for visitors, guests, Kids profiles, away from home over the internet, a public Sofa, or with Work offline on.
+- [docs/free-to-keep.md](docs/free-to-keep.md). Tested with a stand-in Archive (`tests/test_free_to_keep.py`): nothing in
+  the tests reaches the internet. Seen in Chrome on a Mac with the Archive's real pictures and a stand-in search; no film
+  was downloaded from the real Archive, and nothing was seen on a TV, a Sofa Box or a phone in the hand.
+
 ## 1.5.41 (2026-11-20)
 
 Live TV for someone who plugs a Sofa Box into a TV and expects channels to just work.

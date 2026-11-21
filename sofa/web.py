@@ -24,7 +24,7 @@ from . import (archive, __version__, acme, apps, artwork, auth, awake, backup, c
                outside,
                kids, machine, net, optimize, organizer, places, previews, report, screens, store, tls, trickplay, updater, upnp,
                discovery, pairing, sharing, slow, together, travel, tuners, uploads)
-from . import details, disc, freeadult, history, toplists
+from . import details, disc, freeadult, freefilms, history, toplists
 from .library import LIBRARY
 
 CLIENT_DIR = os.path.join(config.APP_DIR, "client")
@@ -100,6 +100,22 @@ class Handler(BaseHTTPRequestHandler):
         """A picture-based subtitle track to draw onto the video (?burn=<stream index>)."""
         v = (qs.get("burn") or [""])[0]
         return int(v) if v.isdigit() else None
+
+    def free_ok(self, u):
+        """Free to keep in Movies and Shows: an admin's, like saving from a link (never a visitor, guest or Kids profile,
+        whose accounts are never admins), at home or over Tailscale, and never on a public Sofa."""
+        return bool(u) and bool(u.get("admin")) and not (u.get("visitor") or u.get("guest") or u.get("kids")) \
+            and not config.demo_on() and self.network() != "internet"
+
+    @staticmethod
+    def free_poster(film):
+        """A real poster for a free film's page, when Sofa's movie lookup knows the film (its own settings decide which
+        service, and nothing is asked with lookups off); else None (the page shows the Archive's picture)."""
+        try:
+            got = metadata.movie(film["title"], film.get("year")) or {}
+        except Exception:
+            return None
+        return {"poster": got.get("poster_url"), "backdrop": got.get("backdrop_url")} if got.get("poster_url") else None
 
     @staticmethod
     def adult_only(u):
@@ -917,6 +933,28 @@ class Handler(BaseHTTPRequestHandler):
             out["likes"] = [r["item"] for r in store.q("SELECT item FROM likes WHERE user_id = ? ORDER BY at DESC", u["id"])
                             if u.get("adult") or not r["item"].startswith(("am:", "as:", "ae:", "ax:", "perf:"))]
             return self.json(out)
+        if path.startswith("/api/free/"):                 # Free to keep in Movies and Shows (sofa/freefilms.py)
+            if not self.free_ok(u):
+                return self.error(404, "Not found.")
+            if path == "/api/free/status":
+                return self.json(freefilms.status())
+            if net.offline_mode():
+                return self.json({"error": "Sofa is set to work offline (Server, Settings), so it can't ask the Internet Archive."})
+            m = re.match(r"^/api/free/(movies|shows)$", path)
+            m2 = re.match(r"^/api/free/(movie|show)/([\w.-]{1,120})$", path)
+            try:
+                if m:
+                    return self.json({"kind": m.group(1), "items": freefilms.catalogue(m.group(1)), "status": freefilms.status()})
+                if m2:
+                    got = freefilms.item(m2.group(2)) if m2.group(1) == "movie" else freefilms.show(m2.group(2))
+                    if not got:
+                        return self.error(404, "That isn't free to keep at the Internet Archive (any more).")
+                    if m2.group(1) == "movie":
+                        got = dict(got, poster=self.free_poster(got))
+                    return self.json(dict(got, status=freefilms.status()))
+            except Exception as exc:                    # (a reply that isn't what its API says is the same as no reply)
+                return self.json({"error": "The Internet Archive didn't answer (%s). Try again in a while." % str(exc)[:80]})
+            return self.error(404, "Not found.")
         if path.startswith("/api/adult/"):                # a site's top lists and kept links (sofa/toplists.py)
             if not self.adult_only(u):
                 return self.error(404, "Not found.")
@@ -1504,6 +1542,18 @@ class Handler(BaseHTTPRequestHandler):
             if auth.confirm_age(u["id"]):
                 store.log("account", "%s said they are 18 or older (asked before the Adult section opens)" % u["name"])
             return self.json({"ok": True})
+        if path == "/api/free/save":                      # Free to keep: a film into Movies, a show's episodes into Shows
+            if not self.free_ok(u):
+                return self.error(404, "Not found.")
+            try:
+                if data.get("kind") == "show":
+                    only = data.get("only")
+                    out = freefilms.save_show(str(data.get("id") or ""), set(str(x) for x in only) if isinstance(only, list) else None, u["name"])
+                else:
+                    out = freefilms.save_movie(str(data.get("id") or ""), u["name"])
+            except (OSError, ValueError) as exc:
+                return self.error(400, str(exc))
+            return self.json(dict(out, status=freefilms.status()))
         if path == "/api/adult/free":                     # save a list of free-to-keep films into Adult
             if not self.adult_only(u) or not u.get("admin"):
                 return self.error(404, "Not found.")

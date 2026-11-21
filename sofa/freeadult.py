@@ -22,7 +22,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import net
+from . import freefilms, net
 
 SEARCH = "https://archive.org/advancedsearch.php"
 META = "https://archive.org/metadata/"
@@ -69,14 +69,8 @@ def _get(url):
 
 
 def free_licence(url):
-    """A licence that lets anyone copy and keep the work: its short name, or None."""
-    u = (url or "").lower()
-    if "publicdomain/mark" in u or "licenses/publicdomain" in u:
-        return "Public domain"
-    if "publicdomain/zero" in u:
-        return "CC0"
-    m = re.search(r"creativecommons\.org/licenses/(by(?:-nc)?(?:-sa|-nd)?)/", u)
-    return "CC " + m.group(1).upper() if m else None
+    """A licence that lets anyone copy and keep the work: its short name, or None (Free to keep's reading)."""
+    return freefilms.free_licence(url)
 
 
 def _text(*parts):

@@ -1255,7 +1255,7 @@ function viewShows(genre) {
   const sort = SORTS[prefs.get("sort", "name")] ? prefs.get("sort", "name") : "name";
   const list = applyFilters(pool).sort(SORTS[sort][1]);
   const named = genre ? applyFilters(namedLike(shows, genre, pool)).sort(SORTS[sort][1]) : [];
-  return `<section class="page"><div class="page-head"><h1>${esc(genre || "Shows")}</h1><span class="count">${plural(list.length, "show")}</span>
+  return `<section class="page"><div class="page-head"><h1>${esc(genre || "Shows")}</h1><span class="count">${plural(list.length, "show")}</span>${keepOn() && !genre ? `<a class="btn keep-entry" href="#/free/shows">${icon("i-download")}Free to keep</a>` : ""}
     <div class="sorter" role="group" aria-label="Sort shows">${Object.keys(SORTS).map(k =>
       `<button data-sort="${k}" aria-pressed="${k === sort}">${SORTS[k][0]}</button>`).join("")}</div></div>
     ${genreChips(gm, "#/shows", genre)}
@@ -1283,7 +1283,7 @@ function viewMovies(list, heading, base, genre) {
   const shown = applyFilters(list), groups = collections(shown);
   const sorted = shown.sort(MSORTS[sort][1]);
   const named = genre ? applyFilters(namedLike(all, genre, list)).sort(MSORTS[sort][1]) : [];
-  let html = `<section class="page"><div class="page-head"><h1>${esc(heading)}</h1><span class="count">${plural(shown.length, "movie")}</span>
+  let html = `<section class="page"><div class="page-head"><h1>${esc(heading)}</h1><span class="count">${plural(shown.length, "movie")}</span>${keepOn() && heading === "Movies" ? `<a class="btn keep-entry" href="#/free/movies">${icon("i-download")}Free to keep</a>` : ""}
     <div class="sorter" role="group" aria-label="Sort movies">${Object.keys(MSORTS).map(k =>
       `<button data-msort="${k}" aria-pressed="${k === sort}">${MSORTS[k][0]}</button>`).join("")}</div></div>`;
   html += genreChips(gm, base, genre);
@@ -1363,6 +1363,120 @@ function viewMovie(id) {
     ${sibs.length ? rail("More " + (m.collection ? "in " + m.collection : "from " + m.studio), m.adult ? "scenes" : "posters", sibs.map(movieCard)) : ""}
     ${likeThisRail(m, sibs)}`;
 }
+/* ---------- Free to keep: films and TV shows anyone may download and keep ----------
+   From the Internet Archive (sofa/freefilms.py): public domain, CC0, a Creative Commons licence, or a film made before
+   1929. For admins, at home. A big film on top, then rows: what's being saved, most watched, by kind, by decade. A
+   film's page shows its licence plainly, whose word it is, where it goes, and Save. Saved films go into Movies, a
+   show's episodes into Shows, like any other file. Adult films are never here (they're in the Adult section's own). */
+const KEEP = { movies: null, shows: null, one: new Map(), status: null, asking: new Set(), poll: 0 };
+const keepOn = () => !!(session && session.user && session.user.admin && !session.demo && session.network !== "internet");
+const keepee = () => location.hash.startsWith("#/free/");
+async function keepAsk(key, url) {
+  if (KEEP.asking.has(key)) return;
+  KEEP.asking.add(key);
+  let d;
+  try { d = await api(url, undefined, 120000); } catch (e) { d = { error: e.message }; }
+  KEEP.asking.delete(key);
+  if (d && d.status) KEEP.status = d.status;
+  if (key === "movies" || key === "shows") KEEP[key] = d; else KEEP.one.set(key, d);
+  if (keepee()) rerender();
+  keepWatch();
+}
+function keepWatch() {                                  // while something is being saved: how far, every few seconds
+  clearTimeout(KEEP.poll);
+  const busy = KEEP.status && KEEP.status.jobs.some(j => j.state === "queued" || j.state === "working");
+  if (!busy || !keepee()) return;
+  KEEP.poll = setTimeout(async () => {
+    try { KEEP.status = await api("/api/free/status"); } catch (e) {}
+    if (keepee() && !document.hidden) { const y = scrollY; route(false); scrollTo(0, y); }
+    keepWatch();
+  }, 3000);
+}
+const keepLic = why => why.startsWith("Public domain") ? "Public domain" : why;
+function keepState(id) {
+  const b = ((KEEP.status || {}).items || {})[id];
+  if (!b) return null;
+  if (b.left) return { pct: b.size ? Math.min(99, Math.round(100 * b.done / b.size)) : 0, text: b.files > 1 ? `Saving ${b.files - b.left + 1} of ${b.files}` : "Saving" };
+  if (b.failed && b.failed === b.files) return { failed: true, text: "Didn't save" };
+  return { done: true };
+}
+const keepHave = x => (x.items ? shows.some(s => fold(s.name) === fold(x.title)) : movies.some(m => fold(m.title) === fold(x.title) && (!x.year || !m.year || Math.abs(m.year - x.year) <= 1)));
+function keepCard(x, kind) {
+  const st = keepState(x.id), have = st && st.done || keepHave(x);
+  return `<a class="card ${kind === "shows" ? "scene" : "poster"} keep-card" href="#/free/${kind === "shows" ? "show" : "movie"}/${encodeURIComponent(x.id)}">
+    <span class="frame"><img src="${esc(x.image)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer"><span class="placeholder" style="--h:${hue(x.title)}">${esc(x.title)}</span>
+      ${x.year ? `<span class="keep-year">${esc(x.year)}</span>` : ""}
+      ${st && st.pct !== undefined ? `<span class="progress keep-prog"><i style="width:${st.pct}%"></i></span>` : ""}
+      ${have ? `<span class="keep-have">${icon("i-check")}In ${kind === "shows" ? "Shows" : "Movies"}</span>` : ""}</span>
+    <span class="t1">${esc(x.title)}</span>
+    <span class="t2">${esc(st && st.text ? st.text + (st.pct !== undefined ? " · " + st.pct + "%" : "") : [kind === "shows" ? plural(x.items.length, "part") : x.kind, keepLic(x.why)].filter(Boolean).join(" · "))}</span></a>`;
+}
+function keepHero(x, kind) {
+  if (!x) return "";
+  return `<section class="hero keep-hero"><img decoding="async" class="hero-bg" src="${esc(x.image)}" alt="" referrerpolicy="no-referrer">
+    <div class="hero-body"><p class="eyebrow">Free to keep · ${kind === "shows" ? "Shows" : "Movies"}</p><h1>${esc(x.title)}</h1>
+      <p class="facts">${[x.year, kind === "shows" ? plural(x.items.length, "part") : x.kind].filter(Boolean).map(f => `<span>${esc(f)}</span>`).join("")}<span class="keep-lic">${icon("i-check")}${esc(keepLic(x.why))}</span></p>
+      ${x.about ? `<p class="overview">${esc(x.about)}</p>` : ""}
+      <div class="actions"><a class="btn primary" href="#/free/${kind === "shows" ? "show" : "movie"}/${encodeURIComponent(x.id)}">${icon("i-download")}${kind === "shows" ? "See the episodes" : "Save to Movies"}</a></div></div></section>`;
+}
+const KEEP_KINDS = ["Film noir", "Horror", "Science fiction", "Westerns", "Comedy", "Mystery", "Adventure", "War", "Musicals", "Silent films", "Drama", "Animation"];
+function viewKeep(kind) {
+  setGlow("");
+  if (!keepOn()) return viewMissing();
+  const d = KEEP[kind];
+  const tabs = `<div class="chips keep-tabs" role="group" aria-label="Free to keep"><button data-keep-tab="movies" aria-pressed="${kind === "movies"}">Movies</button><button data-keep-tab="shows" aria-pressed="${kind === "shows"}">Shows</button></div>`;
+  const head = `<div class="page-head"><h1>Free to keep</h1><span class="count">${kind === "shows" ? "TV shows" : "films"} anyone may download and keep, from the Internet Archive</span></div>`;
+  if (!d) { keepAsk(kind, "/api/free/" + kind); return `<section class="page">${head}${tabs}<p class="count">Asking the Internet Archive…</p></section>`; }
+  if (d.error || !d.items) return `<section class="page">${head}${tabs}<p class="count">${esc(d.error || "Nothing came back.")}</p></section>`;
+  const list = d.items, card = x => keepCard(x, kind);
+  const hero = list.find(x => x.about && x.about.length > 60) || list[0];
+  const st = (KEEP.status || {}).items || {}, saving = list.filter(x => st[x.id]);
+  const rows = [rail("Being saved and saved", kind === "shows" ? "scenes" : "posters", saving.map(card)),
+    rail("Most watched", kind === "shows" ? "scenes" : "posters", list.slice(0, 24).map(card))];
+  if (kind === "movies") {
+    KEEP_KINDS.forEach(k => { const l = list.filter(x => x.kind === k); if (l.length >= 4) rows.push(rail(k, "posters", l.slice(0, 30).map(card))); });
+    const dec = {};
+    list.forEach(x => { if (x.year) { const k = x.year < 1930 ? "The silent era" : (Math.floor(x.year / 10) * 10) + "s"; (dec[k] = dec[k] || []).push(x); } });
+    Object.keys(dec).sort((a, b) => (a === "The silent era" ? 0 : +a.slice(0, 4)) - (b === "The silent era" ? 0 : +b.slice(0, 4)))
+      .forEach(k => { if (dec[k].length >= 4) rows.push(rail(k, "posters", dec[k].slice(0, 30).map(card))); });
+  } else {
+    const dec = {};
+    list.forEach(x => { const k = x.year ? (Math.floor(x.year / 10) * 10) + "s" : "Undated"; (dec[k] = dec[k] || []).push(x); });
+    Object.keys(dec).sort().forEach(k => { if (dec[k].length >= 3 && k !== "Undated") rows.push(rail(k, "scenes", dec[k].map(card))); });
+  }
+  rows.push(rail(kind === "shows" ? "Every show" : "Every film", kind === "shows" ? "scenes" : "posters", list.slice(24).map(card)));
+  return `${keepHero(hero, kind)}<section class="page keep-page under-hero">${head}${tabs}${rows.join("")}
+    <p class="count keep-note">Each film here is marked by the Internet Archive as free to keep: public domain, CC0 or a Creative Commons licence, or made before 1929. The mark is the word of whoever put it there; each film's page shows it. Saved ${kind === "shows" ? "episodes go into Shows" : "films go into Movies"}, named, with the details beside them. Adult films are never here.</p></section>`;
+}
+function viewKeepTitle(kind, id) {
+  setGlow("");
+  if (!keepOn()) return viewMissing();
+  const key = kind + ":" + id, x = KEEP.one.get(key);
+  if (x === undefined) { keepAsk(key, "/api/free/" + kind + "/" + encodeURIComponent(id)); return `<section class="page"><p class="count">Asking the Internet Archive…</p></section>`; }
+  if (!x || x.error) return `<section class="page"><p class="count">${esc((x && x.error) || "That isn't free to keep any more.")} <a href="#/free/${kind === "show" ? "shows" : "movies"}">Back to Free to keep</a></p></section>`;
+  const st = keepState(x.id), have = (st && st.done) || keepHave(x.episodes ? keepDict(x) : x);
+  const poster = (x.poster && x.poster.poster) || x.image, back = (x.poster && x.poster.backdrop) || x.image;
+  const len = x.length ? `${Math.floor(x.length / 3600) ? Math.floor(x.length / 3600) + " h " : ""}${Math.round(x.length % 3600 / 60)} min` : "";
+  const size = x.files ? x.files.reduce((n, f) => n + f.size, 0) : (x.episodes || []).reduce((n, e) => n + e.size, 0);
+  const goes = kind === "show" ? `Shows, as “${x.title}”, Season 1` : `Movies, as “${x.title}${x.year ? " (" + x.year + ")" : ""}”`;
+  const save = st && st.pct !== undefined ? `<span class="btn primary keep-saving"><span class="progress"><i style="width:${st.pct}%"></i></span>${esc(st.text)} · ${st.pct}%</span>`
+    : have ? `<span class="btn keep-done">${icon("i-check")}In ${kind === "show" ? "Shows" : "Movies"}</span>`
+    : `<button class="btn primary" data-keep-save="${esc(kind)}" data-id="${esc(x.id)}">${icon("i-download")}${kind === "show" ? "Save all " + plural(x.episodes.length, "episode") : "Save to Movies"}</button>`;
+  const eps = kind === "show" ? `<section class="keep-eps"><h2>Episodes</h2><ol>${x.episodes.map(e => `<li><span class="keep-ep-n">${e.n}</span><span class="keep-ep-t">${esc(e.name)}</span><small>${bytes(e.size)}</small>
+      <button class="mini" data-keep-save="show" data-id="${esc(x.id)}" data-only="${esc(e.file)}">Save</button></li>`).join("")}</ol>
+      <p class="count">Numbered as the Internet Archive names them, else in its order: not always the order they first aired.</p></section>` : "";
+  return `<section class="hero movie-hero keep-title"><img decoding="async" class="hero-bg" src="${esc(back)}" alt="" referrerpolicy="no-referrer">
+    <div class="hero-body movie-body"><span class="frame poster-frame"><img src="${esc(poster)}" alt="" referrerpolicy="no-referrer"></span>
+      <div class="movie-text"><p class="eyebrow">Free to keep · ${kind === "show" ? "Shows" : "Movies"}</p><h1>${esc(x.title)}</h1>
+        <p class="facts">${[x.year, x.kind, len, kind === "show" ? plural(x.episodes.length, "episode") : ""].filter(Boolean).map(f => `<span>${esc(f)}</span>`).join("")}</p>
+        ${x.about ? `<p class="overview">${esc(x.about)}</p>` : ""}
+        <div class="actions">${save}<a class="btn ghost" href="${esc(x.page || "https://archive.org")}" target="_blank" rel="noopener noreferrer">At the Internet Archive</a><a class="btn ghost" href="#/free/${kind === "show" ? "shows" : "movies"}">Back</a></div></div></div></section>
+    <section class="page keep-page"><div class="keep-licence"><div class="keep-lic big">${icon("i-check")}${esc(keepLic(x.why))}</div>
+      <p>${esc(x.words || (x.why === "Several licences" ? "Each part has its own licence, all of them free to keep." : ""))}</p>
+      <dl><dt>Whose word</dt><dd>The Internet Archive's mark, set by whoever put it there${x.who ? " (" + esc(x.who) + ")" : ""}. Sofa saves that mark beside the file.</dd>
+        <dt>Goes to</dt><dd>${esc(goes)}</dd>${size ? `<dt>Size</dt><dd>${bytes(size)}</dd>` : ""}</dl></div>${eps}</section>`;
+}
+const keepDict = o => Object.assign({}, o, { items: o.episodes || o.items || [] });
 /* ---------- the Adult section ---------- */
 let adultQuery = "", adultList = [];
 const ASORTS = {
@@ -1577,6 +1691,13 @@ function freeSaving() {
       <span class="row-actions">${r.state === "failed" ? `<button class="mini" data-free-retry="${r.id}">Try again</button>` : ""}</span></li>`).join("")}</ul>
     ${c.done ? `<p class="count">A saved film is filed in Adult a minute or two after it arrives, with New arrivals.</p>` : ""}</div>`;
 }
+function adultKeepState(i) {                              // (a film of the list in the saving queue: by its title)
+  const r = (((aFree.data || {}).saving || {}).rows || []).find(r => r.title && (r.title === i.title || r.title.startsWith(i.title + " (")));
+  if (!r) return null;
+  if (r.state === "working") return { pct: Math.round((r.progress || 0) * 100), text: "Saving · " + Math.round((r.progress || 0) * 100) + "%" };
+  if (r.state === "queued") return { pct: 0, text: "Waiting its turn" };
+  return r.state === "done" ? { done: true } : { text: "Didn't save" };
+}
 function viewFree() {
   const key = aFree.cat + ":" + aFree.n, d = aFree.data;
   if (!d || aFree.key !== key) { freeLoad(); if (!d) return `<p class="count">Asking the Internet Archive… (the first time takes a few seconds)</p>`; }
@@ -1590,9 +1711,13 @@ function viewFree() {
       <span class="count">${fresh ? (items.length ? mb(items.reduce((t, i) => t + i.size, 0)) + " in all" : "") : "Looking…"}</span></div>
     ${d.error ? `<p class="count">${esc(d.error)}</p>` : ""}
     ${freeSaving()}
-    ${fresh ? (items.length ? `<ul class="list free-list">${items.map(i => `<li><span><b>${esc(i.title)}</b>${i.year ? ` <span class="count">${esc(i.year)}</span>` : ""}<br>
-      <span class="when">${esc(i.licence)} · ${mb(i.size)} · <a href="${esc(i.page)}" target="_blank" rel="noopener">On the Archive</a></span></span>
-      <span class="row-actions"><button class="mini" data-free-one="${esc(i.url)}">Save</button></span></li>`).join("")}</ul>`
+    ${fresh ? (items.length ? `<div class="grid adult-keep">${items.map(i => {
+        const item = (i.page || "").split("/details/")[1] || "", s = adultKeepState(i);
+        return `<div class="card scene keep-card"><span class="frame">${item ? `<img src="https://archive.org/services/img/${esc(item)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ""}<span class="placeholder" style="--h:${hue(i.title)}">${esc(i.title)}</span>
+          ${i.year ? `<span class="keep-year">${esc(i.year)}</span>` : ""}${s && s.pct !== undefined ? `<span class="progress keep-prog"><i style="width:${s.pct}%"></i></span>` : ""}
+          ${s && s.done ? `<span class="keep-have">${icon("i-check")}In Adult</span>` : s ? "" : `<button class="keep-save-one" data-free-one="${esc(i.url)}" aria-label="Save ${esc(i.title)} into Adult">${icon("i-download")}</button>`}</span>
+          <span class="t1">${esc(i.title)}</span><span class="t2">${esc(s && s.text ? s.text : [i.licence, mb(i.size)].join(" · "))} · <a href="${esc(i.page)}" target="_blank" rel="noopener noreferrer">On the Archive</a></span></div>`;
+      }).join("")}</div>`
       : d.error ? "" : `<p class="count">Nothing of this kind is free to keep just now. Try another kind.</p>`) : ""}`;
 }
 document.addEventListener("click", e => {                 // Free to keep: a kind, how many, save them
@@ -4613,6 +4738,8 @@ function route(animate) {
   else if (name === "movies") { html = viewMovies(null, null, null, rest.join("/") || null); nav = "movies"; }
   else if (name === "movie") { const m = byId.get(rest.join("/")); html = viewMovie(rest.join("/")); nav = m && m.adult ? "adult" : "movies"; }
   else if (name === "collection") { html = viewCollection(rest.join("/")); nav = "movies"; }
+  else if (name === "free" && (rest[0] === "movies" || rest[0] === "shows")) { html = viewKeep(rest[0]); nav = rest[0]; }
+  else if (name === "free" && (rest[0] === "movie" || rest[0] === "show")) { html = viewKeepTitle(rest[0], rest.slice(1).join("/")); nav = rest[0] + "s"; }
   else if (name === "adult" && session.user.adult_ask) { html = viewAdultAsk(); nav = "adult"; }
   else if (name === "adult" && session.user.adult) { html = viewAdult(rest); nav = "adult"; }
   else if (name === "search") { html = viewSearch(rest.join("/")); nav = "search"; }
@@ -4684,7 +4811,7 @@ window.sofaRouteNow = () => route();      // the box sets the address and draws 
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-adult-age],[data-preview-sound],[data-keep],[data-atop],[data-top-site],[data-asort],[data-afilter],[data-aview],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-live-look],[data-rec-now],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
+  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-adult-age],[data-keep-tab],[data-keep-save],[data-preview-sound],[data-keep],[data-atop],[data-top-site],[data-asort],[data-afilter],[data-aview],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-live-look],[data-rec-now],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
@@ -4743,6 +4870,16 @@ document.addEventListener("click", e => {
   if (t.dataset.adultNav) { location.hash = "#/adult/" + t.dataset.adultNav.split("/").map(encodeURIComponent).join("/"); return; }
   if (t.dataset.previewSound !== undefined) { prefs.set("trailerSound", !clipSound()); rerender(); const b = $("[data-preview-sound]"); if (b) b.focus(); return; }
   if (t.dataset.asort) { prefs.set("asort", t.dataset.asort); rerender(); return; }
+  if (t.dataset.keepTab) { location.hash = "#/free/" + t.dataset.keepTab; return; }
+  if (t.dataset.keepSave) {
+    t.disabled = true;
+    api("/api/free/save", { kind: t.dataset.keepSave, id: t.dataset.id, only: t.dataset.only ? [t.dataset.only] : undefined }).then(r => {
+      KEEP.status = r.status;
+      toast(r.queued ? (t.dataset.keepSave === "show" ? `Saving ${plural(r.queued, "episode")} into Shows.` : "Saving it into Movies.") : "It's saved already.");
+      rerender(); keepWatch();
+    }, e => { t.disabled = false; toast(e.message); });
+    return;
+  }
   if (t.dataset.adultAge) {
     api("/api/adult/age", { ok: true }).then(async () => { await boot(); location.hash = "#/adult"; route(); }, err => toast(err.message));
     return;

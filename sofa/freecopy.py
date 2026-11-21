@@ -5,46 +5,37 @@ Only films the archive itself marks as free to copy are offered: a public domain
 licence that allows copying, or (with no licence given) a film from the archive's Feature Films collection made
 before 1929, whose copyright in the United States has run out. What's asked of archive.org: the film's name and
 year, nothing else, and only while Sofa may look things up (not Work offline).
+
+The licence rules and the download are Free to keep's (sofa/freefilms.py): one place Sofa gets free films from. The
+disc page keeps to the licences that allow any use (no NC or ND), as it always has.
 """
-import json
 import os
 import re
-import threading
-import time
 import urllib.parse
-import urllib.request
-import uuid
 
-from . import config, fileops, naming, net, store
+from . import config, freefilms, naming
 
-SEARCH = "https://archive.org/advancedsearch.php"
-META = "https://archive.org/metadata/"
-FILES = "https://archive.org/download/"
-UA = "Sofa (github.com/krintoxi/sofa)"
-FREE = re.compile(r"publicdomain|/zero/|creativecommons\.org/licenses/by(-sa)?/", re.I)
-OLD_ENOUGH = 1929                                           # (made before: its US copyright has run out)
-_lock = threading.Lock()
-_job = {}
+SEARCH = freefilms.SEARCH
+META = freefilms.META
+FILES = freefilms.FILES
+UA = freefilms.UA
+OLD_ENOUGH = freefilms.OLD_ENOUGH
 _found = {}                                                 # (name, year) -> what was found, or None
+_last = [None, None, None]                                           # the disc page's own download (an id in Free to keep's queue)
 
 
 def _get(url, timeout=20):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
-    with net.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+    return freefilms._get(url, timeout)
 
 
 def free(doc):
-    """Why this archive.org film may be copied by anyone, or None."""
-    lic = str(doc.get("licenseurl") or "")
-    if FREE.search(lic):
-        return "public domain" if re.search(r"publicdomain|/zero/", lic, re.I) else "a Creative Commons licence"
-    year = _year(doc.get("year") or doc.get("date"))
-    cols = doc.get("collection") or []
-    cols = cols if isinstance(cols, list) else [cols]
-    if not lic and "feature_films" in cols and year and year < OLD_ENOUGH:
-        return "public domain (made in %d)" % year
-    return None
+    """Why this archive.org film may be copied by anyone, or None (Free to keep's reading, any use allowed only)."""
+    why = freefilms.why_free(doc)
+    if not why or why.startswith("CC BY-N") or "-ND" in why or "-NC" in why:
+        return None
+    if why.startswith("Public domain (made in"):
+        return why[0].lower() + why[1:]
+    return "public domain" if why in ("Public domain", "CC0") else "a Creative Commons licence"
 
 
 def _year(v):
@@ -98,8 +89,14 @@ def find(name, year=None, get=_get):
 
 
 def status():
-    with _lock:
-        return dict(_job) or None
+    """The disc page's free copy, as it goes (from Free to keep's queue)."""
+    if not _last[0]:
+        return None
+    job = next((j for j in freefilms.status()["jobs"] if j["id"] == _last[0]), None)
+    if not job:
+        return None
+    return {"id": job["id"], "name": job["name"], "state": job["state"] if job["state"] != "queued" else "working",
+            "done": job["done"], "total": job["size"], "error": job["error"], "why": _last[1], "page": _last[2]}
 
 
 def download(name, year=None, who="someone"):
@@ -108,60 +105,17 @@ def download(name, year=None, who="someone"):
     if not hit:
         raise ValueError("The Internet Archive has no free copy of %s." % name)
     full = naming.safe_filename("%s (%s)" % (hit["title"], hit["year"]) if hit["year"] else hit["title"])
-    from . import disc
-    folder = os.path.join(disc._root("movies"), full)
-    ext = os.path.splitext(hit["file"])[1].lower()
-    dest = os.path.join(folder, full + ext)
+    dest = freefilms.where("movie", hit["title"], hit["year"], ext=os.path.splitext(hit["file"])[1].lower() or ".mp4")
+    folder = os.path.dirname(dest)
     if os.path.lexists(dest) or (os.path.isdir(folder) and any(os.path.splitext(f)[1].lower() in naming.VIDEO_EXT for f in os.listdir(folder))):
         raise ValueError("%s is already in Movies." % full)
+    from . import disc
     disc._room(folder, hit["size"] or 2 << 30)
-    with _lock:
-        if _job.get("state") == "working":
-            raise ValueError("A free copy is being downloaded already.")
-        _job.clear()
-        _job.update(id=uuid.uuid4().hex[:10], name=full, state="working", done=0, total=hit["size"], error=None, why=hit["why"], page=hit["page"])
-        job = dict(_job)
-    threading.Thread(target=_fetch, args=(job, hit, folder, dest, who), daemon=True, name="free-copy").start()
+    if any(j["state"] in ("queued", "working") and j["id"] == _last[0] for j in freefilms.status()["jobs"]):
+        raise ValueError("A free copy is being downloaded already.")
+    url = FILES + urllib.parse.quote(hit["id"]) + "/" + urllib.parse.quote(hit["file"])
+    freefilms.queue([{"url": url, "dest": dest, "size": hit["size"], "kind": "movie", "item": hit["id"], "name": full,
+                      "info": {"title": hit["title"], "year": hit["year"], "why": hit["why"], "page": hit["page"]}}], who)
+    job = next((j for j in reversed(freefilms.status()["jobs"]) if j["item"] == hit["id"]), None)
+    _last[0], _last[1], _last[2] = (job or {}).get("id"), hit["why"], hit["page"]
     return {"ok": True, "name": full}
-
-
-def _fetch(job, hit, folder, dest, who):
-    os.makedirs(folder, exist_ok=True)
-    stage = os.path.join(folder, ".sofa-free-%s%s" % (job["id"], os.path.splitext(dest)[1]))
-    state, error = "done", None
-    try:
-        url = FILES + urllib.parse.quote(hit["id"]) + "/" + urllib.parse.quote(hit["file"])
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with net.urlopen(req, timeout=60) as r, open(stage, "xb") as out:
-            while True:
-                chunk = r.read(1 << 20)
-                if not chunk:
-                    break
-                out.write(chunk)
-                with _lock:
-                    if _job.get("id") == job["id"]:
-                        _job["done"] += len(chunk)
-            out.flush()
-            os.fsync(out.fileno())
-        fileops.place(stage, dest)
-    except FileExistsError:
-        state, error = "failed", "A file with that name appeared meanwhile. Sofa doesn't write over a file."
-    except Exception as exc:
-        state, error = "failed", "The download stopped: %s" % (getattr(exc, "reason", None) or exc)
-    finally:
-        if os.path.exists(stage):
-            os.unlink(stage)
-        if state != "done":
-            try:
-                os.rmdir(folder)
-            except OSError:
-                pass
-    with _lock:
-        if _job.get("id") == job["id"]:
-            _job.update(state=state, error=error, finished=time.time())
-    store.log("disc", ("Saved %s from the Internet Archive (%s)" % (job["name"], job["why"])) if state == "done" else
-              "Downloading %s stopped: %s" % (job["name"], error), {"by": who, "from": hit["page"]})
-    if state == "done":
-        from . import disc
-        if disc.saved:
-            threading.Thread(target=disc._tell, daemon=True).start()

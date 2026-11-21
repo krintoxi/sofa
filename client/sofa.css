@@ -2353,3 +2353,53 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 .pick-crumbs { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; } .pick-crumbs code { color: var(--mist); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pick-list .pick-open { padding: 6px 14px; font-size: 14px; }
 @media (max-width: 640px) { .cap-look { grid-template-columns: 1fr; } .cap-look .btn { grid-column: 1; } .cap-look img, .cap-blank { width: 100%; } }
+/* ---------- Free to keep (Movies and Shows) ---------- */
+.keep-entry { margin-left: auto; }
+.keep-entry svg, .keep-hero .btn svg, .keep-title .btn svg { width: 18px; height: 18px; }
+.keep-hero .hero-bg { filter: saturate(.85); }
+.keep-hero .overview { max-width: 60ch; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.keep-lic { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  background: rgba(94, 211, 160, .14); color: #7fe0b4; border: 1px solid rgba(94, 211, 160, .35); }
+.keep-lic svg { width: 14px; height: 14px; }
+.keep-lic.big { font-size: 15px; padding: 6px 14px; }
+.keep-tabs { margin: 6px 0 4px; }
+.keep-page .row { margin-left: calc(-1 * var(--gutter)); margin-right: calc(-1 * var(--gutter)); }
+.keep-card .frame img { object-fit: cover; }
+.keep-year { position: absolute; left: 8px; top: 8px; padding: 3px 7px; border-radius: 7px; background: rgba(0, 0, 0, .72); color: #fff;
+  font: 600 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace; z-index: 2; }
+.keep-have { position: absolute; right: 8px; bottom: 8px; z-index: 2; display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border-radius: 999px;
+  background: #2fb67c; color: #06200f; font-size: 12px; font-weight: 700; }
+.keep-have svg { width: 13px; height: 13px; }
+.keep-prog { z-index: 2; height: 6px; }
+.keep-note { max-width: 90ch; margin-top: 30px; }
+.keep-title .poster-frame img { object-fit: cover; width: 100%; height: 100%; }
+.keep-title .overview { max-width: 66ch; }
+.keep-saving { position: relative; overflow: hidden; pointer-events: none; }
+.keep-saving .progress { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; }
+.keep-done { color: #7fe0b4; border-color: rgba(94, 211, 160, .35); pointer-events: none; }
+.keep-done svg { width: 16px; height: 16px; }
+.keep-licence { max-width: 760px; padding: 20px 22px; border-radius: 18px; background: rgba(var(--slate-rgb), .82); border: 1px solid var(--line); }
+.keep-licence p { margin: 12px 0; font-size: 16px; }
+.keep-licence dl { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 0; font-size: 14px; }
+.keep-licence dt { color: var(--mist); text-transform: uppercase; font-size: 11px; letter-spacing: .1em; padding-top: 3px; }
+.keep-licence dd { margin: 0; }
+.keep-eps { max-width: 760px; margin-top: 26px; }
+.keep-eps ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.keep-eps li { display: grid; grid-template-columns: 40px 1fr auto auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; }
+.keep-eps li:nth-child(odd) { background: rgba(var(--slate-rgb), .55); }
+.keep-ep-n { font: 700 15px ui-monospace, "SF Mono", Menlo, monospace; color: var(--mist); }
+.keep-eps small { color: var(--mist); }
+.tv .keep-eps .mini:focus, .tv .keep-tabs button:focus { outline: 4px solid var(--amber); outline-offset: 2px; }
+@media (max-width: 700px) {
+  .keep-title .poster-frame { display: none; }
+  .keep-licence dl { grid-template-columns: 1fr; gap: 2px; }
+  .keep-licence dt { padding-top: 8px; }
+  .keep-eps li { grid-template-columns: 30px 1fr auto; }
+  .keep-eps li small { display: none; }
+}
+.adult-keep { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.keep-save-one { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(0, 0, 0, .72); color: #fff; }
+.keep-save-one svg { width: 18px; height: 18px; }
+.keep-save-one:hover, .keep-save-one:focus-visible { background: var(--amber); color: var(--amber-ink, #fff); outline: none; }
+.keep-card .t2 a { color: inherit; text-decoration: underline; }
