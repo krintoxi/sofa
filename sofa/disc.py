@@ -378,6 +378,20 @@ def tidy_label(label):
     return " ".join(out)
 
 
+def same_title(found, asked):
+    """Is the film found the one asked for? Its title must be the disc's (give or take "The", punctuation, a subtitle
+    after a colon), not just a film from the same year that a search turned up."""
+    import difflib
+    a, b = naming.norm(found), naming.norm(asked)
+    if not a or not b:
+        return False
+    if a == b or a.split(":")[0] == b or naming.norm(str(found).split(":")[0]) == b:
+        return True
+    if re.findall(r"\d+", a) != re.findall(r"\d+", b):
+        return False                                    # (Toy Story is not Toy Story 2)
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.88
+
+
 def _guess(label):
     """What the DVD is, for its page and for a one-press Save: the label as words and, where it names a film and
     Sofa may look things up, that film's details found as a library movie's are (sofa/metadata.py)."""
@@ -393,8 +407,8 @@ def _guess(label):
         found = metadata.movie(name, year)
     except Exception:
         found = None
-    if not found or not found.get("canonical"):
-        return out
+    if not found or not found.get("canonical") or not same_title(found["canonical"], name):
+        return out                                      # (a film by another name: a home video's label found "I, Robot")
     out.update(name=found["canonical"], year=found.get("year"), summary=found.get("summary"), found=found.get("source"))
     if found.get("poster_url"):
         try:
@@ -1222,3 +1236,116 @@ def inbox_rip(entry, name, year=None, done=None, who="the Inbox"):
                     store.log("error", "After saving a DVD from the Inbox: %s" % exc)
     threading.Thread(target=run, daemon=True, name="inbox-dvd").start()
     return _public(job)
+
+
+# ---------------------------------------------------------------- finding a DVD copy on this computer (no typing)
+
+def _places():
+    """Where copies are looked for and the browser starts: this computer's own folders, the library's, and drives."""
+    home = os.path.expanduser("~")
+    out = [("Home", home)]
+    for name in ("Desktop", "Downloads", "Movies", "Videos", "Documents"):
+        p = os.path.join(home, name)
+        if os.path.isdir(p):
+            out.append((name, p))
+    out.append(("Inbox", config.path("inbox")))
+    if os.name == "nt":
+        import string
+        out += [("Drive %s:" % c, "%s:\\" % c) for c in string.ascii_uppercase if os.path.isdir("%s:\\" % c)]
+    else:
+        for base in ("/Volumes", "/media/" + os.path.basename(home), "/media", "/mnt"):
+            try:
+                for n in sorted(os.listdir(base)):
+                    p = os.path.join(base, n)
+                    if os.path.isdir(p) and not n.startswith(".") and p != "/media/" + os.path.basename(home) and n not in ("Macintosh HD", "Recovery", "Preboot", "VM", "Update", "Data"):
+                        out.append((n, p))
+            except OSError:
+                pass
+    seen, keep = set(), []
+    for name, p in out:
+        if os.path.isdir(p) and os.path.realpath(p) not in seen:
+            seen.add(os.path.realpath(p))
+            keep.append({"name": name, "path": p})
+    return keep
+
+
+def _is_copy(path, names=None):
+    """What a folder or file is to Save from a folder or disc image: "dvd" (holds VIDEO_TS, or is it), "image" (an
+    .iso), "cd" (a .cue), or None."""
+    if os.path.isfile(path):
+        low = path.lower()
+        return "image" if low.endswith((".iso", ".img")) else "cd" if low.endswith(".cue") else None
+    if os.path.basename(path.rstrip("/\\")).upper() == "VIDEO_TS":
+        return "dvd"
+    try:
+        names = names if names is not None else os.listdir(path)
+    except OSError:
+        return None
+    return "dvd" if any(n.upper() == "VIDEO_TS" and os.path.isdir(os.path.join(path, n)) for n in names) else None
+
+
+def browse(path=None):
+    """A folder on this computer, for picking a copy: {"path", "up", "places", "items": [{"name", "path", "folder",
+    "copy"}]}. Folders and copies only; hidden ones left out."""
+    places_ = _places()
+    if not path:
+        return {"path": None, "up": None, "places": places_, "items": [dict(p, folder=True, copy=_is_copy(p["path"])) for p in places_]}
+    path = os.path.abspath(os.path.expanduser(str(path)))
+    if not os.path.isdir(path):
+        raise ValueError("That folder isn't there.")
+    items = []
+    try:
+        names = sorted(os.listdir(path), key=str.lower)
+    except OSError as exc:
+        raise ValueError("Sofa may not look in that folder (%s)." % (exc.strerror or exc))
+    for n in names:
+        if n.startswith(".") or n.startswith("$"):
+            continue
+        p = os.path.join(path, n)
+        if os.path.isdir(p):
+            items.append({"name": n, "path": p, "folder": True, "copy": _is_copy(p)})
+        elif _is_copy(p):
+            try:
+                size = os.path.getsize(p)
+            except OSError:
+                size = 0
+            items.append({"name": n, "path": p, "folder": False, "copy": _is_copy(p), "size": size})
+    up = os.path.dirname(path.rstrip("/\\")) or None
+    home = os.path.expanduser("~")
+    shown = "~" + path[len(home):] if path == home or path.startswith(home + os.sep) else path
+    return {"path": path, "shown": shown, "up": up if up and up != path else None, "places": places_, "items": items[:500]}
+
+
+def find_copies(most_seconds=8, most_dirs=6000):
+    """DVD copies (VIDEO_TS folders, .iso images) and CD images (.cue) in this computer's usual folders and on its
+    drives, four folders deep: [{"name", "path", "copy", "where"}]. Stops after a few seconds."""
+    end, found, looked = time.time() + most_seconds, [], 0
+    seen = set()
+    for place in _places():
+        stack = [(place["path"], 0)]
+        while stack and time.time() < end and looked < most_dirs:
+            at, depth = stack.pop()
+            looked += 1
+            try:
+                names = os.listdir(at)
+            except OSError:
+                continue
+            kind = _is_copy(at, names) if at != place["path"] or place["name"] not in ("Home",) else None
+            if kind:
+                if os.path.realpath(at) not in seen:
+                    seen.add(os.path.realpath(at))
+                    found.append({"name": os.path.basename(at.rstrip("/\\")), "path": at, "copy": kind, "where": place["name"],
+                                  "shown": os.path.relpath(os.path.dirname(at.rstrip("/\\")), place["path"]).replace(os.sep, " › ") if os.path.dirname(at.rstrip("/\\")) != place["path"] else ""})
+                continue
+            for n in names:
+                if n.startswith((".", "$")) or n in ("Library", "AppData", "node_modules", "Applications", "System"):
+                    continue
+                p = os.path.join(at, n)
+                if os.path.isdir(p) and not os.path.islink(p):
+                    if depth < 4:
+                        stack.append((p, depth + 1))
+                elif n.lower().endswith((".iso", ".cue")) and os.path.realpath(p) not in seen:
+                    seen.add(os.path.realpath(p))
+                    found.append({"name": os.path.splitext(n)[0], "path": p, "copy": _is_copy(p), "where": place["name"],
+                                  "shown": os.path.relpath(at, place["path"]).replace(os.sep, " › ") if at != place["path"] else ""})
+    return found[:200]

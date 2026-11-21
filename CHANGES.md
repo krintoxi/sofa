@@ -7,6 +7,29 @@ A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: rais
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
+
+## 1.5.40 (2026-11-20)
+
+- **Record from a DVD player is a guided page** (from a copy-protected disc's page, and Server → Record from a DVD
+  player…), step by step, each step ticking itself off:
+  1. **What you need:** what to buy and why (a driver-free USB video capture stick with yellow, or S-video, and red
+     and white inputs, about $15 to $30; the cable; a DVD player), and not an HDMI stick (a DVD player's HDMI output is
+     encrypted, so it shows nothing).
+  2. **Plug the stick in:** the page notices it by itself.
+  3. **Connect the player:** a picture of which plug goes where, then **Look through it**: what the stick sees, and
+     whether there's a picture and sound, in plain words when there isn't ("Is the player on?").
+  4. **Name it and record:** filled in from the disc (its name, year and length), then Record, then Play on the player.
+- **The recording looks after itself.** It starts with the film and stops by itself when the film has ended (the
+  picture standing still and quiet for a minute and a half, after the first five minutes), and the player's own
+  screens are trimmed off both ends without converting anything again. You can leave the page.
+- **Save from a folder or disc image: no typing.** The DVD copies on this computer and its drives (VIDEO_TS folders,
+  .iso and .cue files) are found by themselves, each with Open, and a folder browser starts at Home, Desktop, Downloads,
+  Movies, the Inbox and the drives plugged in. Places are shown as "Home › Movies", not as a full path.
+- **A film is only taken as the disc's when its name is the disc's.** A home video labelled SUMMER_AT_THE_LAKE_2004 was
+  shown with the poster and story of "I, Robot" (a 2004 film the search turned up); now it's shown as itself. Toy
+  Story isn't taken for Toy Story 2 either.
+- Tried in Chrome with a stand-in for the capture stick. **No real capture stick has been tried yet.**
+
 ## 1.5.39 (2026-11-20)
 
 What ripping programs leave, dropped in the Inbox, is filed properly:

@@ -938,7 +938,7 @@ class FromAFolderOrImage(Discs):
         with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
             js = f.read()
         self.assertIn('${k.protected ? `<div class="actions"><button class="btn" data-disc-source="1">Save from a folder or disc image…</button></div>` : ""}', js)
-        self.assertIn('{ action: "add_source", path: form.elements.path.value }', js)
+        self.assertIn('{ action: "add_source", path: o.dataset.pickOpen }', js)
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg converts the disc as it plays")
@@ -1082,6 +1082,110 @@ class RecordingAPlayer(Discs):
                 capture.start(capture.TEST, "A Shop Film", "1999", minutes=1)
 
 
+class RecordingByItself(Discs):
+    """Record from a DVD player looks after itself: it says what to buy, looks through the stick, stops when the film
+    has ended and trims the player's own screens off both ends; and a film found online must be the disc's own."""
+
+    def test_where_the_film_is_in_a_recording(self):
+        from sofa import capture
+        said = """[blackdetect @ 0x1] black_start:0 black_end:4.2 black_duration:4.2
+[freezedetect @ 0x2] lavfi.freezedetect.freeze_start: 0
+[freezedetect @ 0x2] lavfi.freezedetect.freeze_duration: 6.1
+[freezedetect @ 0x2] lavfi.freezedetect.freeze_end: 6.1
+[silencedetect @ 0x3] silence_start: 5400.5
+[freezedetect @ 0x2] lavfi.freezedetect.freeze_start: 5401.2"""
+        ev = capture.events(said)
+        self.assertEqual(ev[0], ("black_start", 0.0))
+        self.assertEqual(capture.film_range(ev, 5600), (5.6, 5402.2))                    # (the menu before, the menu after)
+        self.assertEqual(capture.film_range([], 100), (0.0, 100.0))
+        self.assertEqual(capture.film_range(capture.events("lavfi.freezedetect.freeze_start: 50\nlavfi.freezedetect.freeze_end: 70"), 300), (0.0, 300.0))   # (a paused film: kept)
+
+    def test_it_stops_when_the_film_has_ended(self):
+        from sofa import capture
+        import io
+
+        class Proc:
+            def __init__(self, lines):
+                self.stderr, self.stdin = io.BytesIO("".join(l + "\n" for l in lines).encode()), io.BytesIO()
+        proc = Proc(["frame= 100", "[silencedetect @ 0x3] silence_start: 300", "[freezedetect @ 0x2] lavfi.freezedetect.freeze_start: 301"])
+        job = {"id": "j1", "proc": proc, "started": time.time() - 420, "stopping": False}
+        with capture._lock:
+            capture._job.clear()
+            capture._job.update(job, state="working", said="", ended=None, picture=None)
+        self.addCleanup(capture._job.clear)
+        capture._listen(job)
+        self.assertEqual((capture._job["ended"], capture._job["stopping"], capture._job["picture"]), (301.0, True, "still"))
+        self.assertEqual(proc.stdin.getvalue(), b"q")                                     # (ffmpeg's own stop)
+        proc = Proc(["[silencedetect @ 0x3] silence_start: 30", "[freezedetect @ 0x2] lavfi.freezedetect.freeze_start: 31"])
+        job = {"id": "j2", "proc": proc, "started": time.time() - 200, "stopping": False}
+        with capture._lock:
+            capture._job.clear()
+            capture._job.update(job, state="working", said="", ended=None, picture=None)
+        capture._listen(job)
+        self.assertEqual((capture._job["stopping"], proc.stdin.getvalue()), (False, b""))  # (a few minutes in: the film hasn't begun yet)
+
+    @unittest.skipUnless(FFMPEG, "ffmpeg looks through the stick")
+    def test_a_look_through_the_stick(self):
+        from sofa import capture
+        with mock.patch.dict(os.environ, {"SOFA_CAPTURE": capture.TEST}):
+            got = capture.preview(capture.TEST)
+            self.assertTrue(got["picture"].startswith(b"\xff\xd8"))
+            self.assertTrue(got["moving"])
+            self.assertGreater(got["sound"], -40)
+            with self.assertRaisesRegex(ValueError, "isn't plugged in"):
+                capture.preview("v4l:/dev/video7")
+            st = capture.status()
+        for k in ("stick", "inputs", "cable", "player", "not"):
+            self.assertIn(k, st["hardware"])
+        self.assertIn("HDCP", st["hardware"]["not"])                                       # (an HDMI stick: no, and why)
+
+    def test_a_film_found_must_be_the_discs(self):
+        for found, asked, same in (("I, Robot", "Summer at the Lake", False), ("Rules of Engagement", "Rules of Engagement", True),
+                                   ("Star Wars: Episode IV - A New Hope", "Star Wars", True), ("The Matrix", "Matrix", True),
+                                   ("Toy Story 2", "Toy Story", False), ("Ocean's Eleven", "Oceans Eleven", True)):
+            self.assertEqual(disc.same_title(found, asked), same, (found, asked))
+        from sofa import metadata
+        config.update({"offline": False})
+        self.addCleanup(config.update, {"offline": True})
+        with mock.patch.object(metadata, "movie", return_value={"canonical": "I, Robot", "year": 2004, "summary": "Robots.", "source": "Wikipedia"}):
+            self.assertEqual(disc._guess("SUMMER_AT_THE_LAKE_2004"), {"name": "Summer at the Lake", "year": 2004, "summary": None, "poster": False, "found": False})
+
+
+class PickingACopy(Discs):
+    """Save from a folder or disc image, without typing: the copies found by themselves, and a folder browser."""
+
+    def test_found_and_browsed(self):
+        home = os.path.join(self.work, "home")
+        for rel in ("Movies/Summer at the Lake/VIDEO_TS/VIDEO_TS.IFO", "Downloads/Arrival.iso", "Downloads/notes.txt", "Music/Album.cue",
+                    "Documents/.hidden/VIDEO_TS/VIDEO_TS.IFO", "Movies/Deep/a/b/c/d/e/VIDEO_TS/VIDEO_TS.IFO"):
+            p = os.path.join(home, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "wb").close()
+        with mock.patch.object(os.path, "expanduser", lambda p: home + p[1:] if p.startswith("~") else p), mock.patch.object(disc.os, "name", "posix"):
+            found = disc.find_copies()
+            top = disc.browse()
+            movies = disc.browse(os.path.join(home, "Movies"))
+            downloads = disc.browse(os.path.join(home, "Downloads"))
+        self.assertEqual(sorted((f["name"], f["copy"]) for f in found), [("Album", "cd"), ("Arrival", "image"), ("Summer at the Lake", "dvd")])
+        self.assertTrue({"Home", "Movies", "Downloads", "Inbox"} <= {p["name"] for p in top["places"]})
+        self.assertEqual([(i["name"], i["copy"]) for i in movies["items"]], [("Deep", None), ("Summer at the Lake", "dvd")])
+        self.assertEqual(movies["up"], home)
+        self.assertEqual([(i["name"], i["copy"]) for i in downloads["items"]], [("Arrival.iso", "image")])         # (no other files)
+        with self.assertRaisesRegex(ValueError, "isn't there"):
+            disc.browse(os.path.join(home, "Nowhere"))
+
+    def test_the_page(self):
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
+            js = f.read()
+        for text in ("function viewCapture(driveId)", 'else if (name === "capture" && session.user.admin)', '"/api/admin/capture/look?device="',
+                     '"/api/admin/disc/copies"', '"/api/admin/disc/browse"', "Found on this computer", "Or look in a folder",
+                     "Waiting for the capture stick…", "Not HDMI: it won't show anything."):
+            self.assertIn(text, js)
+        picker = js[js.index("function discSourceDialog()"):js.index("function discSourceDialog()") + 4000]
+        self.assertNotIn("<input", picker)                                                   # (no typing a path)
+
+
 class AFreeCopy(Discs):
     """The disc's film, when the Internet Archive has it free to copy (sofa/freecopy.py)."""
 
@@ -1118,7 +1222,7 @@ class AFreeCopy(Discs):
         with open(os.path.join(here, "client", "app.js"), encoding="utf-8") as f:
             js = f.read()
         for text in ('data-disc-free="${esc(x.id)}">${icon("i-download")}Get it free', '{ action: "free", name: f.title, year: f.year || null }',
-                     '${dvd && k.protected ? discRecord(x, main || k.titles[0]) : ""}', '{ action: "record_stop" }', "Record from a capture device…"):
+                     '${dvd && k.protected ? discRecord(x, main || k.titles[0]) : ""}', '{ action: "record_stop" }', "Record from a DVD player…"):
             self.assertIn(text, js)
 
 

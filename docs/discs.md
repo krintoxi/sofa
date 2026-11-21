@@ -61,6 +61,16 @@ A copy-protected disc's page offers two lawful ways to keep it:
   some sticks' picture flicker or darken; Sofa records what the stick gives it and does nothing about that signal. On
   a Mac, the first recording asks whether Sofa may use a camera: a capture stick counts as one.
 
+  The page walks through it: what to buy, plugging the stick in (Sofa notices it), connecting the player (yellow to
+  yellow, red and white to red and white; S-video for a sharper picture), a look through the stick to check the picture
+  and sound, then the name. Press Record, then Play on the player: Sofa starts with the film, stops by itself when it
+  has ended (a still picture and quiet for a minute and a half), and trims the player's own screens off both ends.
+
+  **What to buy:** a USB 2.0 video capture stick ("USB video grabber") that works without drivers ("UVC", "driver-free"
+  or "plug and play" for Mac, Windows and Linux), with a yellow composite input, ideally an S-video one too, and red
+  and white sound inputs; about $15 to $30. **Not an HDMI capture stick**: a DVD player's HDMI output is encrypted
+  (HDCP), so such a stick shows nothing, and getting round that isn't allowed.
+
 ## Names for a music CD
 
 First the names the disc carries itself (CD-Text), where the drive gives them. Otherwise type them, or press **Look
