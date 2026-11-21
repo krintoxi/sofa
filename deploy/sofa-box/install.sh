@@ -70,6 +70,12 @@ apt-get install -y --no-install-recommends python3 python3-pil python3-evdev mpv
 apt-get install -y --no-install-recommends ffmpeg 2>/dev/null || true                             # Sofa on the box (This box): reading videos, some Live TV
 apt-get install -y --no-install-recommends fonts-noto-color-emoji 2>/dev/null || true             # the home screen's and games' emoji
 apt-get install -y --no-install-recommends libwidevinecdm0 2>/dev/null || true                    # DRM (Netflix…) where Raspberry Pi OS has it
+
+# libdvd-pkg: decrypts commercial DVDs (installs libdvdcss2 via DKMS on first run)
+apt-get install -y --no-install-recommends libdvd-pkg 2>/dev/null || true
+# Run the libdvd-pkg post-install helper (builds libdvdcss2); tolerate failure on non-Pi or offline
+dpkg-reconfigure libdvd-pkg 2>/dev/null || true
+
 if have_pkg cage; then
   SCREEN=wayland
   apt-get install -y --no-install-recommends cage
@@ -77,8 +83,11 @@ else                                            # Raspbian Buster and older: no 
   SCREEN=x11
   apt-get install -y --no-install-recommends xserver-xorg xinit x11-xserver-utils
 fi
-apt-get install -y --no-install-recommends chromium 2>/dev/null || apt-get install -y --no-install-recommends chromium-browser
-apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true           # sound to the TV
+# FIX: guard both chromium attempts so set -e doesn't abort when one variant is unavailable
+apt-get install -y --no-install-recommends chromium 2>/dev/null \
+  || apt-get install -y --no-install-recommends chromium-browser 2>/dev/null \
+  || true
+apt-get install -y --no-install-recommends pipewire-pulse wireplumber 2>/dev/null || true          # sound to the TV
 apt-get install -y --no-install-recommends rtkit 2>/dev/null || true                              # its sound thread on time (below)
 apt-get install -y --no-install-recommends xwayland 2>/dev/null || true                           # games made for X, in cage
 apt-get install -y --no-install-recommends grim 2>/dev/null || true                               # the screen's own picture: is Home really on the TV after a game?
@@ -106,12 +115,14 @@ if [ ! -f "$HERE/sofa-box-agent.py" ]; then        # run through curl: the box (
       STABLE=""                                     # (none marked, or no release of its own: main's newest)
     fi
   fi
-  if curl -fsSL "https://codeload.github.com/krintoxi/sofa/tar.gz/$REF" | tar xz -C "$FETCHED" 2>/dev/null \
+  # FIX: removed 2>/dev/null so curl/tar errors surface; still uses && so a bad download falls through to the Sofa fallback
+  if curl -fsSL "https://codeload.github.com/krintoxi/sofa/tar.gz/$REF" | tar xz -C "$FETCHED" \
       && [ -f "$(ls -d "$FETCHED"/*/deploy/sofa-box 2>/dev/null | head -n 1)/sofa-box-agent.py" ]; then
     HERE="$(ls -d "$FETCHED"/*/deploy/sofa-box | head -n 1)"
     if [ -n "$STABLE" ]; then                       # that version's own installer, with its own files
       say "Sofa Box OS $STABLE (stable)"
-      exec sh "$HERE/install.sh" ${SOFA:+"$SOFA"}
+      # FIX: pass --image through to the re-exec'd installer when building a card image
+      exec sh "$HERE/install.sh" ${IMAGE:+--image} ${SOFA:+"$SOFA"}
     fi
   elif [ -n "$SOFA" ] && curl -fsSL "$SOFA/sofa-box.tar.gz" | tar xz -C "$FETCHED"; then
     HERE="$FETCHED/sofa-box"                         # no GitHub: from the Sofa computer instead
@@ -128,21 +139,26 @@ if [ -f "$HERE/../../sofa.py" ]; then              # Sofa itself, for "This box"
   rm -rf "$LIB/sofa-server" && mkdir -p "$LIB/sofa-server"
   (cd "$HERE/../.." && tar cf - --exclude=__pycache__ sofa.py sofa client LICENSE) | (cd "$LIB/sofa-server" && tar xf -)
 fi                                                  # (from a Sofa computer's archive it's in sofa-server/ already)
-chmod 755 "$LIB" "$LIB"/sofa-box "$LIB"/*.py
+chmod 755 "$LIB" "$LIB"/sofa-box
+# FIX: glob for *.py may match nothing; use find to avoid a fatal "no matches" error under set -e
+find "$LIB" -maxdepth 1 -name '*.py' -exec chmod 755 {} +
 ln -sf "$LIB/sofa-box" /usr/local/bin/sofa-box
 rm -f "$LIB/sofa-box-finder.py"                  # the first Sofa box's start page: the agent does it now
 
 mkdir -p "$CONF"
 if [ -n "$SOFA" ]; then                          # the Sofa it came from: use that one (it still looks if that moves)
+  # FIX: added explicit encoding= and safe open() calls for Python 3.10+ compatibility
   python3 - "$CONF/settings.json" "$SOFA" <<'EOF'
 import json, sys
 path, url = sys.argv[1], sys.argv[2]
 try:
-    s = json.load(open(path))
+    with open(path, encoding="utf-8") as f:
+        s = json.load(f)
 except (OSError, ValueError):
     s = {}
 s["server"] = url
-json.dump(s, open(path, "w"), indent=1)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(s, f, indent=1)
 EOF
 fi
 chown -R "$WHO:" "$CONF"
@@ -505,6 +521,7 @@ echo "  - Opening Sofa asks where from: a Sofa at home, a share link, Sofa on th
 echo "  - Sign in: the TV shows a code; approve it on your phone (Sofa -> your picture -> Pair a TV)."
 echo "  - The TV's own remote works through HDMI (turn on VIERA Link / Anynet+ / SimpLink / CEC on the TV)."
 echo "  - A game controller: sofa-box pair-controller.   Is everything right?  sofa-box doctor"
+echo "  - DVD playback: insert a disc; libdvdcss2 is installed (libdvd-pkg)."
 if [ -n "$BOOT" ] && ! cmp -s "$BOOT/config.txt" "$BOOT/config.txt.before-sofa-box" 2>/dev/null; then
   echo "  - Restart once for the screen settings: sudo reboot"
 fi
