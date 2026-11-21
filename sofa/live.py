@@ -32,6 +32,7 @@ import secrets
 import select
 import socket
 import socketserver
+import subprocess
 import sys
 import threading
 import time
@@ -185,7 +186,8 @@ def free_channels():
         out[cid] = {"id": cid, "name": str(c["name"])[:80], "url": c["url"], "group": str(c.get("group") or "Channels")[:40],
                     "logo": None, "tvg": None, "geo": False, "headers": {}, "adult": False, "home": False,
                     "lists": (FREE_URL,), "playlist": FREE_NAME, "free": True,
-                    "publisher": str(c["publisher"])[:80], "rights": str(c["rights"])[:300], "page": c["page"]}
+                    "publisher": str(c["publisher"])[:80], "rights": str(c["rights"])[:300], "page": c["page"],
+                    "about": str(c.get("about") or "")[:90], "start": c.get("start") is True}
     return out
 
 
@@ -420,6 +422,51 @@ def ffmpeg_input(chan):
     if (chan.get("headers") or {}).get("referer"):
         opts += ["-referer", chan["headers"]["referer"]]
     return opts
+
+
+STILLS = os.path.join(CACHE, "stills")
+STILL_FRESH = 15 * 60                # a channel's picture is made again after this long
+STILL_TIMEOUT = 25
+_still_lock = threading.Lock()       # one picture made at a time (a Raspberry Pi is the server on a Sofa Box)
+
+
+def still(chan):
+    """A picture of what's on a channel now (one frame of its stream, small) for Live TV's guide and rows: made when
+    someone looks, one at a time, kept a quarter of an hour. Never a tuner's (a look would take a tuner from someone
+    watching or recording), an adult channel's or one that isn't answering. The path of the picture, or None."""
+    if not chan or chan.get("tuner") or chan.get("adult") or down(chan["id"]):
+        return None
+    path = os.path.join(STILLS, chan["id"] + ".jpg")
+
+    def fresh():
+        try:
+            return time.time() - os.path.getmtime(path) < STILL_FRESH
+        except OSError:
+            return False
+
+    def kept():
+        return path if os.path.exists(path) else None
+    if fresh():
+        return path
+    from . import media
+    exe = media.tool("ffmpeg")
+    if not exe or not _still_lock.acquire(timeout=STILL_TIMEOUT):
+        return kept()
+    try:
+        if fresh():                                     # (made while this one waited)
+            return path
+        os.makedirs(STILLS, exist_ok=True)
+        part = path + ".part.jpg"
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"] + ffmpeg_input(chan) + [
+            "-rw_timeout", "10000000", "-i", chan["url"], "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "6", part]
+        done = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=STILL_TIMEOUT)
+        if done.returncode == 0 and os.path.getsize(part) > 0:
+            os.replace(part, path)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        _still_lock.release()
+    return kept()
 
 
 class _StayOut(urllib.request.HTTPRedirectHandler):
@@ -707,6 +754,10 @@ def listing(user_id, adult=False, public_only=False, direct_only=False, show_dow
                "fav": c["id"] in favs or bool(row and row["fav"])}
         if c.get("rights"):                         # the public demo's channels: who publishes it, and on what terms
             new.update(publisher=c.get("publisher"), rights=c["rights"], page=c.get("page"))
+        if c.get("about"):                          # what's on it, in a few words (Sofa's own channels): the guide's line
+            new["about"] = c["about"]
+        if c.get("start"):                          # the channel the TV look opens on, before anything was watched
+            new["start"] = True
         if c.get("tuner"):
             new.update(tuner=True, guide_number=c.get("guide_number"), recordable=True)
         elif c.get("home"):
@@ -1349,6 +1400,11 @@ def _loop():
             refresh()
         except Exception as exc:
             store.log("error", "Live TV refresh: %s" % exc)
+        try:                                            # the guide: read again when it's due (sofa/guide.py says when)
+            from . import guide
+            guide.refresh()
+        except Exception as exc:
+            store.log("error", "Live TV's guide: %s" % exc)
         time.sleep(3600)
 
 

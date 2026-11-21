@@ -20,8 +20,13 @@ address. A tuner found is listed **off**: its channels join Live TV when an admi
 
 ## The guide
 
+An HDHomeRun's own guide comes by itself (since Sofa 1.5.41): with a tuner switched on, Sofa asks the tuner for its
+key (`DeviceAuth` in `discover.json`, asked each time since it changes) and SiliconDust's guide service
+(`api.hdhomerun.com/api/guide`) for that tuner's programmes, matched by its own channel numbers, every two hours.
+Server → Live TV → The guide → "The tuner's own guide" switches it off (config `tuner_guide`); offline mode stops it.
+
 An XMLTV source the household gives (an address, or a file on this computer): Server → Live TV → Guide. Sofa reads
-it every six hours and keeps two weeks. Channels are matched by the id a channel list gave, a tuner's number among
+it every six hours (Live TV's hourly round asks; before 1.5.41 only a change on the Server page did) and keeps two weeks. Channels are matched by the id a channel list gave, a tuner's number among
 the guide's names for a channel, or the name. A guide file that declares entities of its own is refused (that's how
 a small file is made to fill a computer's memory). Nothing of the guide is shown to Visitors.
 
@@ -141,7 +146,7 @@ the box adds is in its own player (mpv), which plays every channel and every rec
 |---|---|---|
 | Discovery, the channel list, the streams | **No.** No tuner in the household's fleet. | A stand-in that answers as an HDHomeRun does (`tests/stand_in_tuner.py`): discovery over UDP with SiliconDust's own packet, `discover.json`, `lineup.json`, MPEG-TS streams, two tuners at once and a refusal for a third, a stream that breaks off |
 | Recording | **No.** | Real: ffmpeg copies the stand-in's stream, the Inbox files the file, Visitors don't see it; conflicts, padding, series, repeats, keep-last-N |
-| The guide | **No real source yet.** | XMLTV written by the tests: time zones, both kinds of episode numbers, films, matching |
+| The guide | **No real source yet.** | XMLTV written by the tests: time zones, both kinds of episode numbers, films, matching. The tuner's own guide against a stand-in of SiliconDust's service (`tests/test_easy_live.py`); the real service hasn't answered Sofa yet, so its exact shape is unchecked |
 | The screens | **No real TV, tuner or Sofa Box.** | Headless Chrome against the stand-in (`tests/test_tuner_screens.py`): Antenna in number order, one recorded and cancelled, a series, a film, later hours with the remote, REC in the player, the Server page |
 | On the Sofa Box | **No real Pi, tuner or TV remote's REC button.** | The box's agent with Sofa and the stand-in (`tests/test_box_recording.py`): the guide on the banner, REC this programme and the series (once), stop, the channel changed, refused for a Kids profile; the box's pages through its agent at 1920x1080 by the keys only: Antenna into the box's player, the Record dialog, every row of Recordings, a recording played from where it was left with its intro marked. The Record sheet in Debian 13's mpv 0.40 (`PlayerScreen::test_the_record_sheet_in_mpv_itself`). The player is a stand-in in the page tests |
 

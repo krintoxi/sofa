@@ -7,6 +7,36 @@ A change to Sofa's code (`sofa/`, `client/`, `sofa.py`) gets a new version: rais
 here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
+## 1.5.41 (2026-11-20)
+
+Live TV for someone who plugs a Sofa Box into a TV and expects channels to just work.
+
+- **Live TV opens on Live now**, the channels that play at once, not on the 2000s (whose channels need a minute to
+  get ready the first time). The count says what's what: "28 live channels · 39 channels from the decades".
+- **Three looks, switched under the eras: Guide, Rows and TV.** Guide: the channel in view on top, the categories
+  across, a row a channel saying what's on it, by the clock. Rows: the channel in view big, then a row of channels for
+  each category (Keep watching first). TV: Live TV opens on a channel, full screen, as a TV does (the one watched
+  last, or FOX Weather the first time); Back shows the guide. The remote, favourites, numbers and the preview work the
+  same in all three. Each viewer's choice is kept on that device.
+- **A picture of what's on** each of Sofa's own channels, in the guide and rows: one frame of its stream, made when
+  someone looks, one at a time, kept 15 minutes (it used to show the channel's initials). Never an antenna channel's
+  (it would take a tuner), an adult one's, or away from home.
+- **Sofa's free channels: 28, in six kinds.** New: **Kids** (PBS KIDS, 3ABN Kids), **Shopping** (QVC, QVC2, HSN,
+  HSN2), **Faith** (Daystar, 3ABN), and in News CBS News Miami, Schwab Network and NTD. Each says what's on it in a
+  few words, in the guide, the rows, the player and the box's player. Numbered in the order Live TV shows them.
+  Cheddar News is out: it took up to a minute to answer. Each new one passed the same check as the first 18 (its
+  broadcaster's own https stream and page, plays in a browser on another site), 2026-11-20.
+- **Refused by a host's name too**: a feed whose address is named for FAST channels (fast-channels.<a
+  broadcaster>.com) is left out like one from a FAST service.
+- **An HDHomeRun's guide comes by itself.** With a tuner switched on, Sofa asks the tuner for its key and SiliconDust,
+  who make it, for its guide, as their own app does: Antenna's guide and recording a programme or a series work with
+  nothing typed in. Server → Live TV → The guide has a switch for it; offline mode stops it. An XMLTV guide can still
+  be added. Tried against a stand-in tuner and a stand-in of SiliconDust's service, not a real HDHomeRun.
+- **The guide is read again on time.** It was only read when something on the Server page changed; now every few
+  hours, as it always said.
+- **Record from Live TV's pane**: an antenna channel (or a list at home) in view has Record next to Watch.
+- Plainer words: "Hide the picture" (was "No picture here"); the guide's section on the Server page says what it does
+  before it says XMLTV.
 
 ## 1.5.40 (2026-11-20)
 

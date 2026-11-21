@@ -95,6 +95,7 @@ DEFAULTS = {
     "tuners": [],
     # The guide (sofa/guide.py): XMLTV sources, each {"url": ...} or {"path": ...}.
     "guide_sources": [],
+    "tuner_guide": True,                 # an HDHomeRun's own guide, from SiliconDust (sofa/guide.py), with no source to add
     # Recording (sofa/dvr.py): minutes recorded before a programme's start and after its end.
     "dvr_pad_before": 1,
     "dvr_pad_after": 3,
@@ -174,7 +175,7 @@ DEMO_LOCKED = {
     "share_cinema": False, "archive_channels": False, "retro_eras": False, "defaults_rev": 1,
     # Live TV only from the demo's own channel list: no lists, tuners or guides added by hand, no channel that asks
     # for a made-up browser name or referrer, and no checks from this server (they'd send a made-up browser name)
-    "live_playlists": [], "tuners": [], "guide_sources": [], "live_headers": False, "live_check": False, "free_channels": False,
+    "live_playlists": [], "tuners": [], "guide_sources": [], "tuner_guide": False, "live_headers": False, "live_check": False, "free_channels": False,
     # no Adult section's top lists from other sites
     "adult_sites": [],
     # no accounts, sign-ups or guests, nothing on the home network, nothing from outside

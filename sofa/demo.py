@@ -43,6 +43,8 @@ FAST_HOSTS = (
 # ...and a stream address that names one of them in its path (a broadcaster's feed made for a FAST service, on a
 # shared delivery network: ".../WNNationalSamsung/...", ".../amg01076-...-samsungnz/...")
 FAST_PATH = re.compile(r"samsung|pluto|xumo|vizio|rakuten|roku|tubi|plex|freevee|lgchannels|stirr|distro", re.I)
+# ...or a host named for one, or for FAST channels in general ("fast-channels.<a broadcaster>.com": its feeds made for them)
+FAST_HOST = re.compile(r"fast-?channels|" + FAST_PATH.pattern, re.I)
 GEO = re.compile(r"geo-?block|\[geo|Ⓖ|vpn|unblock", re.I)
 _lock = threading.Lock()
 _hits = {}
@@ -102,7 +104,7 @@ def channel_problems(c):
         out.append("not an https stream")
     if any(host == h or host.endswith("." + h) for h in FAST_HOSTS):
         out.append("a FAST service's stream (%s): their terms allow their own apps only" % host)
-    elif FAST_PATH.search(urllib.parse.urlsplit(url).path + "?" + urllib.parse.urlsplit(url).query):
+    elif FAST_PATH.search(urllib.parse.urlsplit(url).path + "?" + urllib.parse.urlsplit(url).query) or FAST_HOST.search(host):
         out.append("a feed made for a FAST service (its address says so): their terms allow their own apps only")
     for k in ("headers", "user_agent", "ua", "referer", "referrer", "http-user-agent", "http-referrer"):
         if c.get(k):

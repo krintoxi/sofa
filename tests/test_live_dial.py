@@ -165,19 +165,20 @@ class TheDial(unittest.TestCase):
         fit = p.value("(() => { const r = document.querySelector('#dRows').getBoundingClientRect(); return [r.bottom <= innerHeight, r.height >= 160, scrollY]; })()")
         self.assertEqual(fit, [True, True, 0])
 
-    def test_left_is_the_category_and_right_is_back_to_the_channel(self):
+    def test_left_is_the_category_and_down_is_back_to_the_channel(self):
+        # (Sofa 1.5.40: the guide look, the default, has the categories across the top)
         p = self.open()
         self.press("ArrowDown", 3)
         at = p.value("document.activeElement.dataset.live")
         self.press("ArrowLeft")
         self.assertEqual(p.value("document.activeElement.dataset.group"), "News")    # (the one in use, not whichever is level)
-        self.press("ArrowDown", 2)
+        self.press("ArrowRight", 2)
         self.assertEqual(p.value("document.activeElement.dataset.group"), "Kids")
-        self.press("ArrowUp", 2)
-        self.press("ArrowRight")
+        self.press("ArrowLeft", 2)
+        self.press("ArrowDown")
         self.assertEqual(p.value("document.activeElement.dataset.live"), at)
         self.press("ArrowLeft")
-        self.press("ArrowDown")
+        self.press("ArrowRight")
         self.press("Enter")                                                         # OK: that category's channels
         self.until("document.querySelector('#dial [data-group=\"Movies\"]').getAttribute('aria-pressed') === 'true'")
         self.assertEqual(p.value("document.activeElement.dataset.group"), "Movies")

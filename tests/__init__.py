@@ -21,7 +21,8 @@ config.update(dict({k: os.path.join(LIBRARY, v) for k, v in {
     "review": "Needs Review", "adult": "Adult", "originals": "Converted Originals"}.items()},
     port=0, offline=True, tvmaze=False, free_movie_lookup=False, dlna=False, previews=False, trickplay=False,
     detect_intros=False, auto_convert=False,
-    free_channels=False))   # (Sofa's own free channels: tests/test_free_channels.py switches them on itself)
+    free_channels=False,    # (Sofa's own free channels: tests/test_free_channels.py switches them on itself)
+    tuner_guide=False))     # (a tuner's own guide from the internet: tests/test_easy_live.py switches it on itself)
 for key in ("shows", "movies", "inbox", "review", "adult"):
     os.makedirs(config.path(key), exist_ok=True)
 

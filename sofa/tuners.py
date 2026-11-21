@@ -151,6 +151,16 @@ def read(address):
             "model": str(d.get("ModelNumber") or "")[:40]}
 
 
+def auth(dev):
+    """The key a tuner gives for its maker's guide (discover.json's DeviceAuth: it changes, so it's asked each time),
+    or None."""
+    try:
+        d = _json(dev["base"].rstrip("/") + "/discover.json")
+    except Exception:
+        return None
+    return str(d.get("DeviceAuth") or "").strip() or None if isinstance(d, dict) else None
+
+
 # ---------------------------------------------------------------- the ones this Sofa knows
 
 def known():

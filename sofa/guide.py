@@ -8,19 +8,29 @@ address or a file, config "guide_sources"); Sofa reads it a few times a day and 
 A source's channels are matched to Live TV's by what they have in common: the id a channel list gave (`tvg-id`),
 a tuner's channel number ("5.1") among the source's names for a channel, or the channel's name itself.
 
+An HDHomeRun's guide comes by itself: with a tuner switched on, Sofa asks the tuner for its key (DeviceAuth, in
+discover.json) and SiliconDust, who make it, for that tuner's guide, as their own app does (config "tuner_guide",
+on unless switched off; offline mode stops it, as it stops everything from the internet). Matched by the tuner's
+own channel numbers. Nothing to type: Antenna's guide and recording a programme or a series work from the start.
+
 The guide is for the household: it isn't given to the public library's Visitors.
 """
 import datetime
 import io
+import json
 import os
 import re
 import threading
 import time
+import urllib.parse
 import xml.etree.ElementTree as ET
 
 from . import config, store
 
 REFRESH_EVERY = 6 * 3600
+TUNER_EVERY = 2 * 3600               # a tuner's own guide covers the next hours: read again more often
+TUNER_GUIDE = "https://api.hdhomerun.com/api/guide"
+TUNER_WHERE = "The tuner's own guide (SiliconDust)"
 KEEP_DAYS = 14
 MAX_BYTES = 96 * 2**20
 _lock = threading.Lock()
@@ -136,13 +146,51 @@ def _read(source):
     return data
 
 
+def tuner_guides():
+    """The tuners whose own guide Sofa reads: every tuner in use, unless an admin switched that off."""
+    from . import tuners
+    return tuners.using() if config.get("tuner_guide") is not False else []
+
+
+def tuner_programmes(dev):
+    """A tuner's programmes from SiliconDust's guide, in parse()'s shape with Sofa's channel ids: by the tuner's own
+    channel numbers. The tuner gives the key for it each time (it changes)."""
+    from . import live, tuners
+    key = tuners.auth(dev)
+    if not key:
+        raise ValueError("the tuner gave no key for its guide")
+    with live.fetch(TUNER_GUIDE + "?DeviceAuth=" + urllib.parse.quote(key), timeout=30) as r:
+        data = json.loads(r.read(MAX_BYTES).decode("utf-8", "replace"))
+    by_number = {c["guide_number"]: c["id"] for c in tuners.lineup(dev)}
+    out = []
+    for ch in data if isinstance(data, list) else []:
+        cid = by_number.get(str((ch or {}).get("GuideNumber") or "").strip())
+        for p in (ch.get("Guide") or []) if cid else []:
+            try:
+                start, stop = int(p.get("StartTime") or 0), int(p.get("EndTime") or 0)
+            except (TypeError, ValueError):
+                continue
+            title = str(p.get("Title") or "").strip()
+            if not (start and stop > start and title):
+                continue
+            season, episode = episode_of([("", str(p.get("EpisodeNumber") or ""))])
+            kinds = " ".join(str(f) for f in p.get("Filter") or []).lower()
+            out.append({"channel": cid, "start": start, "stop": stop, "title": title[:200],
+                        "sub": str(p.get("EpisodeTitle") or "").strip()[:200] or None,
+                        "about": str(p.get("Synopsis") or "").strip()[:1200] or None, "season": season, "episode": episode,
+                        "year": None, "movie": "movie" in kinds and episode is None, "fresh": bool(p.get("First"))})
+    return out
+
+
 def refresh(force=False):
-    """Read the household's guide sources again (every few hours, or now) and keep the next two weeks."""
+    """Read the household's guide sources (and its tuners' own guides) again every few hours, or now, and keep the
+    next two weeks."""
     from . import live
-    if not sources():
+    tuned = tuner_guides()
+    if not sources() and not tuned:
         return 0
     with _lock:
-        if not force and time.time() - _state["at"] < REFRESH_EVERY:
+        if not force and time.time() - _state["at"] < (TUNER_EVERY if tuned else REFRESH_EVERY):
             return None
         _state["at"] = time.time()
     _table()
@@ -162,6 +210,18 @@ def refresh(force=False):
         except Exception as exc:
             _state["sources"][where] = {"channels": 0, "of": 0, "programmes": 0, "at": now, "error": str(exc)[:200]}
             store.log("live", "Couldn't read the guide at %s: %s" % (where[:80], str(exc)[:160]))
+    for dev in tuned:
+        where = TUNER_WHERE + ": " + (dev.get("name") or dev["id"])
+        try:
+            mine = [p for p in tuner_programmes(dev) if p["stop"] > now - 3600]
+            rows += [(p["channel"], p["start"], p["stop"], p["title"], p["sub"], p["about"], p["season"], p["episode"],
+                      p["year"], int(p["movie"]), int(p["fresh"])) for p in mine]
+            _state["sources"][where] = {"channels": len({p["channel"] for p in mine}), "of": len(live_of(dev)),
+                                        "programmes": len(mine), "at": now, "error": None}
+            total += len(mine)
+        except Exception as exc:
+            _state["sources"][where] = {"channels": 0, "of": 0, "programmes": 0, "at": now, "error": str(exc)[:200]}
+            store.log("live", "Couldn't read the tuner's guide: %s" % str(exc)[:160])
     if rows:
         db = store.db()
         with db:
@@ -199,6 +259,13 @@ def showings(title, channel_id=None, after=None):
     return [dict(r) for r in store.q(sql + " ORDER BY start", *args)]
 
 
+def live_of(dev):
+    from . import tuners
+    return tuners.lineup(dev)
+
+
 def status():
+    own = [TUNER_WHERE + ": " + (d.get("name") or d["id"]) for d in tuner_guides()]
     return {"sources": [dict(_state["sources"].get(s.get("url") or s.get("path") or "", {}), where=s.get("url") or s.get("path"))
-                        for s in sources()], "updated": _state["at"] or None}
+                        for s in sources()] + [dict(_state["sources"].get(w, {}), where=w, auto=True) for w in own],
+            "tuner_guide": config.get("tuner_guide") is not False, "updated": _state["at"] or None}

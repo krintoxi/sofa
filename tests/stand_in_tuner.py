@@ -48,7 +48,7 @@ class Tuner:
 
             def do_GET(self):
                 if self.path == "/discover.json":
-                    return self.send_json({"FriendlyName": "Antenna tuner", "ModelNumber": "STAND-IN", "DeviceID": "%08X" % DEVICE,
+                    return self.send_json({"FriendlyName": "Antenna tuner", "ModelNumber": "STAND-IN", "DeviceID": "%08X" % DEVICE, "DeviceAuth": "stand-in-key+/=",
                                            "TunerCount": me.count, "BaseURL": me.base, "LineupURL": me.base + "/lineup.json"})
                 if self.path == "/lineup.json":
                     return self.send_json([

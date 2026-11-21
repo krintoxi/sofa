@@ -2247,6 +2247,80 @@ html[lang="es"] .dialog .sorter.inline { flex-wrap: wrap; max-width: 100%; borde
 .free-saving { margin: 10px 0 18px; }
 .free-list li .when a { color: inherit; text-decoration: underline; }
 
+/* Live now's three looks (liveLook): the switch, the guide (lv-a) and rows (lv-b). The TV look is the guide, under a
+   channel playing full screen. */
+.live-tools .lv-looks { margin-left: auto; }
+.lv-looks { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(var(--slate2-rgb), .8); flex: none; }
+.lv-looks button { padding: 7px 16px; border-radius: 999px; border: 0; background: none; color: var(--soft); font: 600 14px var(--ui); cursor: pointer; }
+.lv-looks button[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
+.tv .lv-looks button { font-size: 18px; padding: 9px 20px; }
+.tv .lv-looks button:focus { outline: 4px solid var(--amber); outline-offset: 2px; }
+.live-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.live-dial.lv-a { display: block; }
+.live-dial.lv-a .g-now.lv-watch { display: grid; position: static; padding: 18px; grid-template-columns: minmax(200px, 30%) 1fr; gap: 28px; margin-bottom: 16px; align-items: center; }
+.lv-a .g-now .g-pic { aspect-ratio: 16 / 9; }
+.lv-a .g-info h2 { font-size: clamp(28px, 3.2vw, 52px); }
+.lv-a .lv-cats { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; max-height: none !important; gap: 8px; margin: 0 0 10px; scrollbar-width: none; }
+.lv-a .lv-cats button { width: auto; flex: none; border-radius: 999px; padding: 9px 18px; background: rgba(var(--slate2-rgb), .7); }
+.lv-a .lv-cats button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: none; }
+.lv-a .lv-cats button[aria-pressed="true"] small { color: inherit; opacity: .7; }
+.lv-times { display: grid; grid-template-columns: repeat(4, 1fr); margin-left: 335px; padding: 4px 52px 8px 12px; color: var(--mist); font-size: 14px; }
+.lv-a .g-row { height: 64px; }
+.lv-a .g-prog > span { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: center; gap: 18px; width: 100%; }
+.lv-a .d-name { font-size: 17px; }
+.lv-a .d-what { display: block; padding: 10px 16px; border-radius: 10px; background: rgba(var(--slate2-rgb), .75); color: var(--soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-a .g-prog:focus .d-what { background: rgba(0, 0, 0, .14); color: inherit; }
+.tv .lv-a .g-row { height: 76px; }
+.tv .lv-a .d-name, .tv .lv-a .d-what { font-size: 22px; }
+.tv .lv-times { font-size: 18px; margin-left: 395px; }
+.tv .lv-a .g-prog > span { grid-template-columns: 220px minmax(0, 1fr); }
+
+.live-dial.lv-b { display: block; }
+.live-dial.lv-b .g-now.lv-watch { display: grid; position: static; padding: 18px; grid-template-columns: minmax(200px, 34%) 1fr; gap: 28px; margin-bottom: 18px; align-items: center; }
+.lv-b .g-now .g-pic { aspect-ratio: 16 / 9; }
+.lv-b .g-info h2 { font-size: clamp(32px, 4vw, 64px); }
+.lv-b .g-rows.lv-shelves { display: block; padding: 2px 4px 12px; overflow-y: auto; }
+.lv-shelf + .lv-shelf { margin-top: 18px; }
+.lv-shelf h2 { font: 700 20px var(--display); margin: 0 0 10px; }
+.lv-tiles { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; padding: 4px; }
+.lv-tiles::-webkit-scrollbar { display: none; }
+.lv-b .g-row.lv-tile-row { display: block; height: auto; flex: none; width: 230px; }
+.lv-tile { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 0; border: 0; background: none; color: var(--paper); text-align: left; cursor: pointer; font: inherit; }
+.lv-tile .lv-logo { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 14px; font: 800 34px var(--display); color: #fff;
+  background: linear-gradient(135deg, var(--ch), rgba(var(--slate2-rgb), 1) 130%); }
+.lv-tile .lv-logo.has { background: rgba(var(--paper-rgb), .07); }
+.lv-tile b { display: block; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-tile small { display: block; color: var(--mist); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lv-tile:hover .lv-logo, .lv-b .g-row.in-view .lv-logo { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .7); }
+.lv-tile:focus { outline: none; }
+.lv-tile:focus .lv-logo { box-shadow: 0 0 0 4px var(--amber); }
+.lv-b .g-row.down .lv-tile { opacity: .55; }
+.tv .lv-b .g-row.lv-tile-row { width: 300px; }
+.tv .lv-tile b { font-size: 21px; }
+.tv .lv-tile small { font-size: 16px; }
+.tv .lv-shelf h2 { font-size: 26px; }
+@media (max-width: 900px) {
+  .live-dial.lv-a .g-now.lv-watch, .live-dial.lv-b .g-now.lv-watch { grid-template-columns: 112px 1fr; gap: 14px; }
+  .lv-times { display: none; }
+  .lv-a .g-prog > span { grid-template-columns: 120px minmax(0, 1fr); gap: 10px; }
+  .lv-b .g-row.lv-tile-row { width: 168px; }
+}
+.lv-watch .g-pic img.still { object-fit: cover; padding: 0; }
+.lv-logo.still img { object-fit: cover; padding: 0; }
+.lv-tile .lv-logo.still { background: #000; }
+/* (a TV at 720p, and the box's smaller screens: the channel in view stays small, so the rows fit under it) */
+@media (max-height: 820px) {
+  .tv .live-dial.lv-a .g-now.lv-watch, .tv .live-dial.lv-b .g-now.lv-watch { grid-template-columns: minmax(160px, 20%) 1fr; padding: 10px; gap: 18px; margin-bottom: 10px; }
+  .tv .lv-a .g-info h2, .tv .lv-b .g-info h2 { font-size: 30px; margin: 2px 0 4px; }
+  .tv .lv-a .g-row { height: 52px; }
+  .tv .lv-a .d-name, .tv .lv-a .d-what { font-size: 17px; }
+  .tv .lv-a .d-what { padding: 7px 12px; }
+  .tv .lv-a .lv-cats { margin-bottom: 4px; }
+  .tv .lv-times { padding-bottom: 4px; font-size: 15px; }
+  .tv .lv-b .g-row.lv-tile-row { width: 220px; }
+}
 /* ---------- Record from a DVD player (#/capture), and the folder picker ---------- */
 .cap-page { max-width: 880px; }
 .cap-page .lede { color: var(--soft); max-width: 62ch; }

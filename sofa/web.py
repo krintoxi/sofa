@@ -697,7 +697,7 @@ class Handler(BaseHTTPRequestHandler):
         u = self.need_user()
         if not u:
             return
-        m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|p/([\w.=-]+))$", path)
+        m = re.match(r"^/live/([0-9a-f]{12})/(index\.m3u8|still\.jpg|p/([\w.=-]+))$", path)
         chan = live.channel(m.group(1)) if m else None
         if not live.visible(chan) or (chan.get("adult") and not u.get("adult")) or u.get("kids") or \
                 (u.get("visitor") and not config.get("share_live")):
@@ -708,6 +708,12 @@ class Handler(BaseHTTPRequestHandler):
             # channel's own country limits, and make this Sofa a broadcaster (sofa/live.py, listing).
             return self.send_body("Away from home, a channel plays straight from where it's streamed; this one can't "
                                   "be played that way.", status=403)
+        if m.group(2) == "still.jpg":                   # a picture of what's on it now (Live TV's guide and rows)
+            pic = live.still(chan)
+            if not pic:
+                return self.send_body("No picture.", status=404)
+            with open(pic, "rb") as f:
+                return self.send_body(f.read(), "image/jpeg", headers={"Cache-Control": "private, max-age=300"})
         url = chan["url"] if m.group(2) == "index.m3u8" else live.unpack(m.group(3))
         if not url:
             return self.send_body("Not found", status=404)
@@ -1622,6 +1628,8 @@ class Handler(BaseHTTPRequestHandler):
                     if key == "path" and not os.path.isfile(os.path.expanduser(where)):
                         raise ValueError("No file at that path on this computer.")
                     config.update({"guide_sources": [s for s in guide.sources() if (s.get("url") or s.get("path")) != where] + [{key: where}]})
+                if "tuner_guide" in data:
+                    config.update({"tuner_guide": bool(data["tuner_guide"])})
                 if data.get("guide_remove"):
                     config.update({"guide_sources": [s for s in guide.sources() if (s.get("url") or s.get("path")) != data["guide_remove"]]})
             except (ValueError, OSError) as exc:

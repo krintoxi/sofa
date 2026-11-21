@@ -2812,21 +2812,57 @@ function liveList() {
    chip plays one picture, full screen). Light on purpose: rows and logos are drawn as they come near. */
 const DIAL_COLOURS = ["#FF2E88", "#3DF07A", "#4CC2FF", "#B18CFF", "#FF6B4A", "#2ED3C6", "#E8FF3A", "#EDE6D6"];
 const dialColour = g => { let h = 0; for (const ch of String(g || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return DIAL_COLOURS[h % DIAL_COLOURS.length]; };
+// a picture of what's on a channel now (sofa/live.py still): Sofa's own channels have no logo. Never a tuner's (it would
+// take a tuner), an adult one's, away from home (it plays straight from where it's streamed there) or on a slow box.
+const stillOf = c => c.logo || c.archive || c.tuner || c.adult || c.down || c.src || LITE() || (liveData && liveData.away) ? null : "/live/" + c.id + "/still.jpg";
 const dialMark = name => (String(name).match(/[A-Za-z0-9À-ÿ]+/g) || ["?"]).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 let dialShown = null, dialPicTimer = 0, dialHover = null, dialPeek = null, dialPeekTimer = 0, dialLogos = null;
 function dialRow(c) {
-  const what = c.down ? "Not answering right now" : c.archive ? (c.now ? "Now: " + esc(c.now) : "On now") : "";
+  const what = c.down ? "Not answering right now" : c.archive ? (c.now ? "Now: " + esc(c.now) : "On now") : c.about ? esc(c.about) : c.tuner ? "On air" : "";
   return `<div class="g-row${c.down ? " down" : ""}" style="--ch:${esc(c.color || dialColour(c.name))}"><div class="g-ch"><i class="lv-logo"${c.logo && !LITE() ? ` data-logo="${esc(c.logo)}"` : ""}>${esc(dialMark(c.name))}</i><b>${c.number || ""}</b></div>
     <div class="g-line"><button class="g-prog on" data-live="${esc(c.id)}"><span><strong class="d-name">${esc(c.name)}</strong>${what ? `<small class="d-what">${what}</small>` : ""}<em>${esc(c.group)}</em></span></button>
       <button class="star" data-fav="${esc(c.id)}" aria-pressed="${!!c.fav}" aria-label="${c.fav ? "Remove from favorites" : "Add to favorites"}">★</button></div></div>`;
 }
+/* Live now's three looks, switched under the eras (liveLook): the guide (the channel in view on top, the categories
+   across, a row a channel with what's on it, by the clock), rows (the channel watched last, big, then a row of
+   channels for each category) and TV (Live TV opens on a channel, full screen, as a TV does; the guide is under it).
+   One set of rows underneath (#dRows): the remote, the preview, favourites and the numbers work the same in all three. */
+const LIVE_LOOKS = [["guide", "Guide"], ["rows", "Rows"], ["tv", "TV"]];
+const liveLook = () => { const l = prefs.get("liveLook", "guide"); return LIVE_LOOKS.some(x => x[0] === l) ? l : "guide"; };
+let liveOpened = false;                                  // (the TV look: tuned in once on the way into Live TV, not on every redraw)
+window.addEventListener("hashchange", () => { if (!onLive()) liveOpened = false; });
+function lookSwitch() {
+  return `<div class="lv-looks" role="group" aria-label="How Live TV looks">${LIVE_LOOKS.map(([id, label]) =>
+    `<button data-live-look="${id}" aria-pressed="${id === liveLook()}">${label}</button>`).join("")}</div>`;
+}
+function liveTuneIn() {                                 // the TV look: the channel watched last (or the first), full screen
+  const all = liveData.channels.filter(c => !c.archive && !c.down);
+  const c = liveRecent().find(x => !x.down) || all.find(x => x.start) || all[0];
+  if (c && !Player.isOpen()) Player.openLive(c, all);
+}
+function liveRows() {                                   // the rows look: a row of channels for each category
+  const live = liveData.channels.filter(c => !c.archive), seen = liveRecent(), shelves = [];
+  if (seen.length) shelves.push(["Keep watching", seen.slice(0, 8)]);
+  if (live.some(c => c.fav)) shelves.push(["★ Favorites", live.filter(c => c.fav)]);
+  const groups = (liveData.cats || []).concat([...new Set(live.map(c => c.group))].filter(g => !(liveData.cats || []).includes(g)));
+  groups.forEach(g => { const l = live.filter(c => c.group === g); if (l.length) shelves.push([g, l]); });
+  const tile = c => `<div class="g-row lv-tile-row${c.down ? " down" : ""}" style="--ch:${esc(c.color || dialColour(c.name))}"><button class="lv-tile" data-live="${esc(c.id)}">
+      <i class="lv-logo"${c.logo && !LITE() ? ` data-logo="${esc(c.logo)}"` : stillOf(c) ? ` data-logo="${esc(stillOf(c))}" data-still` : ""}>${esc(dialMark(c.name))}</i>
+      <span><b>${esc(c.name)}</b><small>${c.number ? c.number + " · " : ""}${esc(c.down ? "Not answering right now" : c.about || c.group)}</small></span></button></div>`;
+  return `<div class="tv-guide live-dial lv-b" id="dial"><div class="g-now lv-watch" id="dNow"></div>
+    <div class="g-rows lv-shelves" id="dRows">${shelves.map(([name, l]) => `<section class="lv-shelf"><h2>${esc(name)}</h2><div class="lv-tiles">${l.map(tile).join("")}</div></section>`).join("")}</div></div>`;
+}
 function liveDial(list, cats) {
   const mixed = !cats || liveQuery || /^(All|Favorites|Recent)$/.test(liveGroup);   // (channels of several categories: each row says which)
-  return `<div class="tv-guide live-dial${cats ? "" : " no-cats"}${mixed ? " mixed" : ""}" id="dial">
+  const look = !liveAdult && liveEra === "now" && !liveQuery ? liveLook() : "list";
+  if (look === "rows") return liveRows();
+  const t0 = Math.floor(Date.now() / 1800000) * 1800;
+  return `<div class="tv-guide live-dial${look === "list" ? "" : " lv-a"}${cats ? "" : " no-cats"}${mixed ? " mixed" : ""}" id="dial">
+    ${look === "list" ? "" : `<div class="g-now lv-watch" id="dNow"></div>`}
     ${cats ? `<div class="chips lv-cats" role="group" aria-label="Categories">${cats.map(([id, label, n]) => `<button data-group="${esc(id)}" aria-pressed="${id === liveGroup}"><span>${esc(label)}</span><small>${n.toLocaleString()}</small></button>`).join("")}</div>` : ""}
-    <div class="lv-mid">${list.length ? `<div class="g-rows" id="dRows">${list.slice(0, LIVE_PAGE).map(dialRow).join("")}${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}</div>`
+    <div class="lv-mid">${look !== "list" && list.length ? `<div class="lv-times" aria-hidden="true">${[0, 1, 2, 3].map(k => `<span>${hhmm(t0 + k * 1800)}</span>`).join("")}</div>` : ""}${list.length ? `<div class="g-rows" id="dRows">${list.slice(0, LIVE_PAGE).map(dialRow).join("")}${list.length > LIVE_PAGE ? `<div class="chan-more" id="chanMore" aria-hidden="true"></div>` : ""}</div>`
       : `<p class="count">${liveQuery ? "No channel by that name." : "No channels here yet."}</p>`}</div>
-    <div class="g-now lv-watch" id="dNow"></div></div>`;
+    ${look === "list" ? `<div class="g-now lv-watch" id="dNow"></div>` : ""}</div>`;
 }
 function watchLogos() {                                 // a row's logo, when the row comes near
   if (dialLogos) dialLogos.disconnect();
@@ -2837,7 +2873,7 @@ function watchLogos() {                                 // a row's logo, when th
     const el = e.target, img = new Image();
     dialLogos.unobserve(el);
     img.alt = ""; img.decoding = "async"; img.referrerPolicy = "no-referrer";
-    img.onload = () => { if (el.isConnected) { el.textContent = ""; el.classList.add("has"); el.append(img); } };
+    img.onload = () => { if (el.isConnected) { el.textContent = ""; el.classList.add("has"); if (el.dataset.still !== undefined) el.classList.add("still"); el.append(img); } };
     img.src = el.dataset.logo; el.removeAttribute("data-logo");
   }), { root: box, rootMargin: "300px 0px" });
   todo.forEach(el => dialLogos.observe(el));
@@ -2894,21 +2930,24 @@ function showDial(b) {                                  // the channel in view, 
     <div class="g-info"><div class="g-chline"><b>${c.number || ""}</b>${liveAdult ? "" : `<span>${esc(c.group)}</span>`}${c.down ? `<i class="g-aired">Off air</i>` : `<i class="g-aired d-on"><i class="live-dot"></i>On air</i>`}</div>
       <h2>${esc(c.name)}</h2>
       ${c.down ? `<p class="g-when">It didn't answer the last time Sofa looked. It's back in the list by itself when it answers again.</p>`
-        : c.archive ? `<p class="g-when">${c.now ? "Now: " + esc(c.now) : "On now."}</p>` : ""}
+        : c.archive ? `<p class="g-when">${c.now ? "Now: " + esc(c.now) : "On now."}</p>` : c.about ? `<p class="g-when">${esc(c.about)}</p>` : ""}
       ${c.archive && c.next ? `<p class="g-next">Next: ${esc(c.next)}</p>` : ""}
       ${c.archive && c.about ? `<p class="g-about">${esc(c.about)}</p>` : ""}
-      ${TV ? `<p class="g-keys"><b>OK</b> watch <b>▶</b> then OK: a favorite <b>◀</b> categories <b>0–9</b> a channel's number</p>`
-        : `<div class="actions lv-acts"><button class="btn primary" data-live="${esc(c.id)}">Watch</button><button class="btn" data-dflip title="Tunes to a channel at random">Flip</button>
-            ${LITE() || c.archive || liveData.away ? "" : `<button class="link-btn" data-live-peek="${peekOn() ? 0 : 1}">${peekOn() ? "No picture here" : "Show the picture here"}</button>`}</div>`}</div>`;
+      ${TV ? $("#dial.lv-b") ? `<p class="g-keys"><b>OK</b> watch <b>◀ ▶</b> channels <b>▲ ▼</b> rows <b>0–9</b> a channel's number</p>`
+        : `<p class="g-keys"><b>OK</b> watch${c.recordable && dvrMay() ? ` <b>REC</b> record` : ""} <b>▶</b> then OK: a favorite <b>◀</b> categories <b>0–9</b> a channel's number</p>`
+        : `<div class="actions lv-acts"><button class="btn primary" data-live="${esc(c.id)}">Watch</button>${c.recordable && !c.down && dvrMay() ? `<button class="btn" data-rec-now="${esc(c.id)}"><i class="rec-dot"></i> Record</button>` : ""}<button class="btn" data-dflip title="Tunes to a channel at random">Flip</button>
+            ${LITE() || c.archive || liveData.away ? "" : `<button class="link-btn" data-live-peek="${peekOn() ? 0 : 1}">${peekOn() ? "Hide the picture" : "Show the picture here"}</button>`}</div>`}</div>`;
   clearTimeout(dialPicTimer);
-  if (c.logo) dialPicTimer = setTimeout(() => {         // (not for every channel the remote passes on its way)
+  const picture = c.logo || stillOf(c);
+  if (picture) dialPicTimer = setTimeout(() => {        // (not for every channel the remote passes on its way)
     const pic = $("#dPic");
     if (!pic || dialShown !== c) return;
     const img = new Image();
     img.alt = ""; img.decoding = "async"; img.referrerPolicy = "no-referrer";
-    img.onload = () => { if (pic.isConnected && dialShown === c) { pic.prepend(img); requestAnimationFrame(() => img.classList.add("in")); } };
-    img.onerror = () => { if (pic.isConnected && dialShown === c) pic.insertAdjacentHTML("afterbegin", `<span class="d-mark">${esc(dialMark(c.name))}</span>`); };
-    img.src = c.logo;
+    if (!c.logo) img.className = "still";
+    img.onload = () => { if (pic.isConnected && dialShown === c) { const m = $(".d-mark", pic); if (m && !c.logo) m.remove(); pic.prepend(img); requestAnimationFrame(() => img.classList.add("in")); } };
+    img.onerror = () => { if (pic.isConnected && dialShown === c && c.logo) pic.insertAdjacentHTML("afterbegin", `<span class="d-mark">${esc(dialMark(c.name))}</span>`); };
+    img.src = picture;
   }, TV ? 300 : 120);
   startDialPeek(c);
   fitDial();
@@ -2939,6 +2978,10 @@ function dialFlip() {
   if (b) { b.focus({ preventScroll: true }); b.scrollIntoView({ block: "nearest" }); }
   Player.openLive(c, liveList());
 }
+function liveCount() {                                  // (the live channels, and the decades' and the films' on the clock)
+  const live = liveData.channels.filter(c => !c.archive).length, clock = liveData.channels.length - live;
+  return [live ? plural(live, "live channel") : "", clock ? plural(clock, "channel") + " from the decades" : ""].filter(Boolean).join(" · ") || "No channels yet";
+}
 function viewLive(xxx) {
   setGlow("");
   xxx = !!xxx && !!session.user.adult;
@@ -2958,11 +3001,11 @@ function viewLive(xxx) {
   // they're on, and the starred channels), then an era's guide or the dial.
   const eras = liveAdult ? [] : liveEras();
   if (liveAdult) liveEra = "now";
-  else if (eras.length && !eras.some(e => e.id === liveEra)) liveEra = (eras.find(e => e.id === "2000s") || eras[0]).id;
+  else if (eras.length && !eras.some(e => e.id === liveEra)) liveEra = (eras.find(e => e.id === "now") || eras[0]).id;   // (Live now first: channels that play at once)
   const tabs = liveAdult ? "" : `<div class="eras" role="tablist" aria-label="Eras">${eras.map(e => `<button role="tab" data-era="${esc(e.id)}"
       aria-selected="${!liveQuery && e.id === liveEra}">${e.id === "now" ? `<i class="live-dot"></i>` : e.id === "fav" ? "★ " : e.id === "rec" ? `<i class="rec-dot${dvrBusy() ? " on" : ""}"></i>` : ""}${esc(e.name)}</button>`).join("")}</div>`;
   const st = liveAdult ? liveData.checking || {} : null;
-  const head = `<div class="page-head live-head"><h1>${name}</h1>${TV && !liveAdult ? tabs : `<span class="count">${liveAdult ? plural(liveData.channels.length, "channel") + " playing" : plural(liveData.channels.length, "channel")}</span>`}${back}</div>${TV ? "" : tabs}`;
+  const head = `<div class="page-head live-head"><h1>${name}</h1>${TV && !liveAdult ? tabs : `<span class="count">${liveAdult ? plural(liveData.channels.length, "channel") + " playing" : liveCount()}</span>`}${back}</div>${TV ? "" : tabs}`;
   const plainLists = liveAdult ? (liveData.playlists || []).filter(p => p.ordinary && !p.off) : [];
   const plainNote = plainLists.map(p => `<p class="count lv-plain">${esc(p.name)} isn't shown here: its channels are ${esc(p.ordinary.join(", "))}, not adult.${session.user.admin ? ` Server, Live TV: press <b>Adult</b> on it to put them in Live TV.` : ""}</p>`).join("");
   const still = (st && st.on && st.checked < st.total ? `<p class="count lv-checking">Sofa is still checking ${plural(st.total - st.checked, "channel")}, a few at a time. The ones that play show up here.</p>` : "") + plainNote;
@@ -2995,8 +3038,10 @@ function viewLive(xxx) {
   if (cats && cats.length && !cats.some(c => c[0] === liveGroup)) liveGroup = cats[0][0];
   const list = liveList(), searching = liveEra !== "rec" && (!TV || now || liveEra === "fav") || liveQuery;
   if (liveEra === "rec" && !liveQuery) return `<section class="page live-page">${head}${viewRecordings()}</section>`;
+  const looks = now && !liveAdult && !visitorMode() && liveData.channels.some(c => !c.archive);
+  if (looks && liveLook() === "tv" && !liveQuery && !liveOpened) { liveOpened = true; setTimeout(() => { if (onLive() && liveEra === "now") liveTuneIn(); }, 0); }
   return `<section class="page live-page">${head}
-    ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}">${liveAdult ? "" : now || liveQuery ? gone : ""}</div>` : ""}${still}
+    ${searching ? `<div class="live-tools"><input id="liveSearch" type="search" placeholder="${now ? "Find a channel" : "Find any channel"}" aria-label="Find a channel" value="${esc(liveQuery)}">${looks ? lookSwitch() : ""}${liveAdult ? "" : now || liveQuery ? gone : ""}</div>` : looks ? `<div class="live-tools">${lookSwitch()}</div>` : ""}${still}
     ${isGuide() ? `<div class="tv-guide" id="guide"><p class="count">Loading the guide…</p></div>`
       : list.length || cats ? liveDial(list, cats && cats.length > 1 ? cats : null)
       : `<p class="count">${liveQuery ? "No channel by that name." : "No channels here yet."}</p>`}</section>`;
@@ -3433,7 +3478,13 @@ document.addEventListener("keydown", e => {
       : "Recording " + r.recording.title + " until " + hhmm(r.recording.stop) + ".");
   }
   // The dial's categories: right goes to the channel in view (not to whichever row is level with the category)
-  if (a && a.closest && a.closest("#dial .lv-cats") && e.key === "ArrowRight" && innerWidth > 900) {
+  // (the guide look: the categories are across the top, and down goes back to the channel in view)
+  if (a && a.closest && a.closest("#dial.lv-a .lv-cats") && e.key === "ArrowDown") {
+    const row = $("#dRows .g-row.in-view [data-live]") || $("#dRows [data-live]");
+    if (row) { e.preventDefault(); e.stopPropagation(); document.body.classList.add("tv-nav"); row.focus({ preventScroll: true }); row.scrollIntoView({ block: "nearest" }); }
+    return;
+  }
+  if (a && a.closest && a.closest("#dial:not(.lv-a) .lv-cats") && e.key === "ArrowRight" && innerWidth > 900) {
     const row = $("#dRows .g-row.in-view [data-live]") || $("#dRows [data-live]");
     if (row) { e.preventDefault(); e.stopPropagation(); document.body.classList.add("tv-nav"); row.focus({ preventScroll: true }); row.scrollIntoView({ block: "nearest" }); }
     return;
@@ -4045,24 +4096,27 @@ function tunersPanel(t, s) {
     || `<li class="empty-row">No tuner yet. Sofa looks on your network for one, or give its address.</li>`;
   const g = t.guide || {}, srcs = (g.sources || []).map(x => `<li><span><b class="src">${esc(x.where || "")}</b><br><span class="when">${x.error ? "Problem: " + esc(x.error)
       : x.at ? esc(`${x.channels} of ${plural(x.of, "channel")} matched · ${plural(x.programmes, "programme")} · read ${ago(x.at)}`) : "Being read…"}</span></span>
-    <span class="row-actions"><button class="mini danger" data-guide-remove="${esc(x.where || "")}">Remove</button></span></li>`).join("")
-    || `<li class="empty-row">No guide yet. Antenna shows each channel as on air, and REC records what's on.</li>`;
+    <span class="row-actions">${x.auto ? "" : `<button class="mini danger" data-guide-remove="${esc(x.where || "")}">Remove</button>`}</span></li>`).join("")
+    || `<li class="empty-row">No guide yet. ${g.tuner_guide ? "Switch an HDHomeRun on above and its guide comes by itself. " : ""}Without one, Antenna shows each channel as on air, and REC records what's on.</li>`;
   const sel = (key, opts, v) => `<select class="mini-select" data-setting-select="${key}" aria-label="${key === "dvr_pad_before" ? "Minutes before" : "Minutes after"}">${opts.map(n => `<option value="${n}"${+v === n ? " selected" : ""}>${n} min</option>`).join("")}</select>`;
   return `<div class="panel wide tuners-panel"><h2>Tuners at home</h2><p class="hint">A network tuner (an HDHomeRun, or one that answers like it) brings the channels from your antenna or cable into Live TV, under Antenna, and Sofa can record them. They stay at home: never a visitor's, never played away from home.</p>
     <ul class="list">${rows}</ul>
     <div class="actions"><button class="btn" data-tuner-find="1">${icon("i-search")}Look on the network</button></div>
     <form class="inline-form tuner-form" id="addTuner"><label class="field"><span>Or its address</span><input name="addr" required placeholder="192.168.1.50" autocomplete="off"></label>
       <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
-    <h2 class="sub-h">The guide</h2><p class="hint">What's on, for Antenna and for recording a programme or a series: an XMLTV address or a file on this computer (XMLTV is how TV guides come, from a guide service or a program that makes one). Sofa reads it every six hours and keeps two weeks. Channels are matched by number and name.</p>
+    <h2 class="sub-h">The guide</h2><p class="hint">What's on, for Antenna and for recording a programme or a series. With an HDHomeRun it comes by itself: Sofa asks SiliconDust, who make it, for that tuner's guide, as their own app does. For another tuner, or a guide of your own, add its address or a file on this computer below (in XMLTV, the format TV guides come in). Channels are matched by number and name.</p>
     <ul class="list">${srcs}</ul>
-    <form class="inline-form tuner-form" id="addGuide"><label class="field"><span>XMLTV address or file</span><input name="where" required placeholder="https://…/guide.xml or ~/guide.xml" autocomplete="off"></label>
+    <div class="toggle"><div><b>The tuner's own guide</b><span>From SiliconDust, for an HDHomeRun switched on above. Off: only the guides added below.</span></div>
+      <button class="mini" data-tuner-guide="${g.tuner_guide ? 0 : 1}" aria-pressed="${!!g.tuner_guide}">${g.tuner_guide ? "On" : "Off"}</button></div>
+    <form class="inline-form tuner-form" id="addGuide"><label class="field"><span>A guide's address or file (XMLTV)</span><input name="where" required placeholder="https://…/guide.xml or ~/guide.xml" autocomplete="off"></label>
       <button class="btn" type="submit">Add</button><div class="form-error" role="alert" style="grid-column:1/-1"></div></form>
     <div class="toggle"><div><b>A little more before and after</b><span>Programmes rarely start and end on the minute. The extra minutes give way: they never make two recordings clash.</span></div>
       <div class="pad-sel"><label>Before ${sel("dvr_pad_before", PAD_BEFORE, s.dvr_pad_before)}</label><label>After ${sel("dvr_pad_after", PAD_AFTER, s.dvr_pad_after)}</label></div></div></div>`;
 }
 document.addEventListener("click", e => {
-  const b = e.target.closest && e.target.closest("[data-tuner-find], [data-tuner-switch], [data-tuner-remove], [data-guide-remove]");
+  const b = e.target.closest && e.target.closest("[data-tuner-find], [data-tuner-switch], [data-tuner-remove], [data-guide-remove], [data-tuner-guide]");
   if (!b) return;
+  if (b.dataset.tunerGuide !== undefined) return adminAction(async () => { await api("/api/admin/tuners", { tuner_guide: b.dataset.tunerGuide === "1" }); guideData = null; });
   if (b.dataset.tunerFind) {
     b.disabled = true; b.lastChild.textContent = "Looking…";
     return adminAction(async () => {
@@ -4630,7 +4684,7 @@ window.sofaRouteNow = () => route();      // the box sets the address and draws 
 
 /* ---------- interactions ---------- */
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-adult-age],[data-preview-sound],[data-keep],[data-atop],[data-top-site],[data-asort],[data-afilter],[data-aview],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
+  const t = e.target.closest("[data-lang-filter],[data-live-peek],[data-ep-details],[data-slide],[data-intros-recheck],[data-manage],[data-machine-test],[data-drive-use],[data-place-remove],[data-new-pictures],[data-empty-deleted],[data-free-space],[data-retry-details],[data-adult-nav],[data-adult-age],[data-preview-sound],[data-keep],[data-atop],[data-top-site],[data-asort],[data-afilter],[data-aview],[data-adult-play],[data-like],[data-download],[data-surprise],[data-pair-profile],[data-session-end],[data-forget],[data-seen],[data-wipe-logs],[data-trailer-sound],[data-trailer-replay],[data-redo-damaged],[data-add-link],[data-send-files],[data-dl-retry],[data-dl-cancel],[data-dl-clear],[data-dl-install],[data-enable-adult],[data-conv-retry],[data-conv-cancel],[data-conv-all],[data-conv-clear],[data-update],[data-user-adult],[data-user-kids],[data-dupes],[data-kids-title],[data-act-kind],[data-key-clear],[data-fix],[data-msort],[data-adult-tab],[data-play-start],[data-srv-tab],[data-mlike],[data-mplay],[data-mplay-one],[data-mplay-list],[data-mshuffle-list],[data-station],[data-mtab],[data-play-mv],[data-guest-clear],[data-play],[data-watched],[data-season],[data-sort],[data-nudge],[data-season-watched],[data-dismiss],[data-admin],[data-setting],[data-user-pass],[data-user-del],[data-live],[data-live-look],[data-rec-now],[data-fav],[data-group],[data-era],[data-preset],[data-live-remove],[data-live-down],[data-live-check],[data-share-setting],[data-share-new],[data-copy],[data-share-title]");
   if (!t) return;
   if (t.dataset.fix) { fixDialog(t.dataset.fix); return; }
   if (t.dataset.shareTitle) {                   // Share on a title's page (or Stop sharing in Server → Sharing)
@@ -4784,7 +4838,21 @@ document.addEventListener("click", e => {
   if (t.dataset.mtab) { location.hash = "#/music/" + t.dataset.mtab; return; }
   if (t.dataset.playMv) { Player.open(mById.get(t.dataset.playMv)); return; }
   if (t.dataset.guestClear) { if (confirm("Clear everything guests have watched and liked, and sign current guests out?")) adminAction(() => api("/api/admin/guest/clear", {})); return; }
-  if (t.dataset.live) { const list = liveList(); Player.openLive(list.find(c => c.id === t.dataset.live), list); return; }
+  if (t.dataset.live) {
+    const list = t.closest(".lv-b") ? liveData.channels.filter(c => !c.archive) : liveList();
+    Player.openLive(list.find(c => c.id === t.dataset.live) || liveData.channels.find(c => c.id === t.dataset.live), list); return;
+  }
+  if (t.dataset.liveLook) {
+    prefs.set("liveLook", t.dataset.liveLook); liveOpened = false; dialShown = null; rerender();
+    const b = $(`[data-live-look="${CSS.escape(t.dataset.liveLook)}"]`); if (b && TV) b.focus({ preventScroll: true });
+    return;
+  }
+  if (t.dataset.recNow) {
+    const c = liveData.channels.find(x => x.id === t.dataset.recNow);
+    if (c) dvrDo({ now: c.id }, r => r.recording.state === "conflict" ? "It can't record now: " + r.recording.why
+      : "Recording " + r.recording.title + " until " + hhmm(r.recording.stop) + ".");
+    return;
+  }
   if (t.dataset.fav) {
     const c = liveData.channels.find(x => x.id === t.dataset.fav); c.fav = !c.fav;
     api("/api/live/favorite/" + c.id, { on: c.fav }).catch(() => {});
@@ -6517,7 +6585,7 @@ const Player = (function () {
       // An adult channel's name stays on the Adult page: the box's player, its phone remote and "what's playing" get
       // the number alone.
       const xxx = !!ch.adult, called = c => c.adult ? "Channel " + (c.number || "") : c.name;
-      BoxCard.show({ label: "LIVE TV", title: called(ch), sub: xxx ? "" : [ch.guide_number || ch.number, onAir ? filmName(onAir.film) : ch.group || ""].filter(Boolean).join(" · ") });
+      BoxCard.show({ label: "LIVE TV", title: called(ch), sub: xxx ? "" : [ch.guide_number || ch.number, onAir ? filmName(onAir.film) : ch.about || ch.group || ""].filter(Boolean).join(" · ") });
       // Up and down on the box go through the channels sent with this one: 600 of them at most, the ones around it
       // (a longer list used to send this one alone, and up and down did nothing).
       const whole = list || [ch], at = Math.max(0, whole.indexOf(ch)), may = dvrMay();
@@ -6547,7 +6615,7 @@ const Player = (function () {
     const shown = ch.guide_number || ch.number;         // (a tuner's channel by its own number: 5.1)
     $(".p-show", el).innerHTML = (shown ? `<b class="p-num">${esc(shown)}</b>` : "") + esc(ch.name) + '<span class="live-badge">LIVE</span>';
     archiveNext = null;
-    $(".p-title", el).textContent = ch.group + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
+    $(".p-title", el).textContent = (ch.about ? ch.about + " · " : "") + ch.group + (liveList_.length > 1 ? "  (Page Up / Page Down changes channel)" : "");
     $('[data-act="next"]', el).hidden = liveList_.length < 2;
     modeEl.hidden = true;
     el.hidden = false; document.body.style.overflow = "hidden";
