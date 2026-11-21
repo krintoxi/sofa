@@ -1162,7 +1162,7 @@ class PlayInVlc(Discs):
         with mock.patch.object(disc, "vlc", return_value="/usr/bin/vlc"), mock.patch.object(disc.sys, "platform", "linux"), \
                 mock.patch.object(subprocess, "Popen") as popen:
             self.assertEqual(disc.play_external(d["id"]), {"installed": True, "ok": True})
-        self.assertEqual(popen.call_args[0][0], ["/usr/bin/vlc", "dvd://" + image])
+        self.assertEqual(popen.call_args[0][0], ["/usr/bin/vlc", "dvd://" + image])          # (a disc image: its own path, on any computer)
         with mock.patch.object(disc, "vlc", return_value="/Applications/VLC.app"), mock.patch.object(disc.sys, "platform", "darwin"), \
                 mock.patch.object(subprocess, "Popen") as popen:
             disc.play_external(d["id"])
@@ -1171,9 +1171,10 @@ class PlayInVlc(Discs):
             disc.play_external("nowhere")
 
     def test_what_vlc_is_asked_to_open(self):
-        self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "dvd"), "dvd:///dev/sr0")
-        self.assertEqual(disc.vlc_target({"dev": "/dev/disk4", "mount": "/Volumes/A_FILM"}, "dvd"), "dvd:///Volumes/A_FILM")
-        self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "cd"), "cdda:///dev/sr0")
+        with mock.patch.object(disc.os, "name", "posix"):                                  # (Linux's and a Mac's drives)
+            self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "dvd"), "dvd:///dev/sr0")
+            self.assertEqual(disc.vlc_target({"dev": "/dev/disk4", "mount": "/Volumes/A_FILM"}, "dvd"), "dvd:///Volumes/A_FILM")
+            self.assertEqual(disc.vlc_target({"dev": "/dev/sr0", "mount": None}, "cd"), "cdda:///dev/sr0")
         with mock.patch.object(disc.os, "name", "nt"):
             self.assertEqual(disc.vlc_target({"dev": "D", "mount": "D:\\"}, "dvd"), "dvd:///D:/")
 
