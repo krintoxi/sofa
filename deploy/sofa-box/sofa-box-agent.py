@@ -5191,7 +5191,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/box/api/weather/places", "/box/api/apps", "/box/api/sofa", "/box/api/sofa/continue",
                            "/box/api/setup", "/box/api/timezone", "/box/api/devices", "/box/api/store", "/box/api/files",
                            "/box/api/files/list", "/box/api/games", "/box/api/shield", "/box/api/browser",
-                           "/box/api/disc", "/box/api/music/catalog", "/box/api/music/account", "/box/api/install", "/box/api/term"))
+                           "/box/api/disc", "/box/api/music/catalog", "/box/api/music/account", "/box/api/term", "/box/api/install"))
     READ_ONLY_UNDER = ("/box/home", "/box/icons/", "/box/store-icons/", "/box/games/", "/box/music/", "/box/fonts/")
 
     @classmethod
