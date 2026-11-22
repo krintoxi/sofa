@@ -521,7 +521,8 @@ def _run_one(job):
                  int(time.time()), str(exc)[:400], job["id"])
         shutil.rmtree(folder, ignore_errors=True)
         if job["adult"]:
-            store.log_private("download", "A download for Adult didn't work")
+            store.log_private("download", "A download for Adult didn't work", {"why": str(exc)[:400]})   # (in the private log:
+            # the row with its reason is gone once the list is cleared, and the Activity line says no more)
         else:
             store.log("download", "Couldn't save from a link: %s" % str(exc)[:200], {"url": job["url"]})
     finally:

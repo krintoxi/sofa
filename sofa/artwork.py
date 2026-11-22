@@ -51,7 +51,10 @@ def resized(full, width, wait=True):
         return full
     if not (os.access(media.SIPS, os.X_OK) or media.tool("ffmpeg")):
         return full
-    st = os.stat(full)
+    try:
+        st = os.stat(full)
+    except OSError:              # gone since it was listed (moved, renamed, a drive taken out): nothing to resize
+        return full
     ext = ".png" if full.lower().endswith(".png") else ".jpg"    # logos keep their transparency
     key = hashlib.sha1(("v2|%s|%d|%d|%d" % (full, st.st_size, int(st.st_mtime), width)).encode()).hexdigest()[:24]
     dest = os.path.join(CACHE, key + ext)

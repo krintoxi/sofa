@@ -3848,7 +3848,7 @@ document.addEventListener("submit", e => {
 });
 
 /* ---------- server (admin) page ---------- */
-let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all", adminBusy = null, adminAgain = false, adminSlow = "";
+let adminData = null, adminTimer = 0, adminTab = "overview", activityKind = "all", adminBusy = null, adminAgain = false, adminSlow = "", adminAsked = "", adminChanged = false, adminSent = "";
 const SRV_TABS = [["overview", "Overview"], ["library", "Library"], ["storage", "Storage"], ["convert", "Converting"], ["downloads", "Downloads"], ["live", "Live TV"],
   ["people", "People"], ["sharing", "Sharing"], ["settings", "Settings"], ["internet", "Internet"], ["update", "Updates"], ["activity", "Activity"]];
 /* The Server page asks for one status at a time (a second ask while one is out waits for it), gives up on
@@ -3859,9 +3859,10 @@ const ADMIN_EXTRA = {
   people: [["sessions", "/api/admin/sessions", r => r.sessions]], internet: [["internet", "/api/admin/internet"]], sharing: [["sharing", "/api/admin/sharing"]],
   live: [["tuners", "/api/admin/tuners"]]
 };
-function loadAdmin() {
+function loadAdmin(changed) {           // changed: after a change made here, drawn again even while typing
+  if (changed) adminChanged = true;
   if (adminBusy) { adminAgain = true; return adminBusy; }
-  const tab = adminTab;
+  const tab = adminAsked = adminTab;
   adminBusy = (async () => {
     try {
       const [d, live, ...extra] = await Promise.all([api("/api/admin/status", undefined, 20000), api("/api/live?for=server", undefined, 20000).catch(() => ({}))]
@@ -3880,14 +3881,64 @@ function loadAdmin() {
   return adminBusy.then(() => {
     adminBusy = null;
     if (adminAgain) { adminAgain = false; return loadAdmin(); }
-    const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest(".net-form, .share-form");
-    if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim") && !typing) {
-      const active = document.activeElement, keep = active && active.id;
+    if (location.hash.startsWith("#/server") && !Player.isOpen() && !document.querySelector(".dialog-scrim") && (adminChanged || !adminTyping())) {
+      const sent = adminChanged ? adminSent : "";      // (the form just sent isn't filled in again: it was saved)
+      adminChanged = false; adminSent = "";
+      const active = document.activeElement, keep = active && active.id, typed = adminForms().filter(t => t[0] !== sent), field = adminField(active);
       const y = scrollY; view.innerHTML = viewServer(adminTab); scrollTo(0, y); drawGuestQr();
-      if (keep && $("#" + keep)) $("#" + keep).focus();
+      adminFormsBack(typed);
+      const back = keep && $("#" + keep) ? $("#" + keep) : field && adminField.find(field);
+      if (back) back.focus({ preventScroll: true });
     }
   });
 }
+/* The Server page is drawn again every few seconds. What someone is typing in one of its forms (a list's link, a new
+   person, a key, the quiet hours, a tuner's address), a box ticked and a form's error stay as they were; and while a
+   text box has the focus it isn't drawn again at all (a TV's on-screen keyboard would close). */
+const formKey = f => f.id || Object.entries(f.dataset).map(([k, v]) => k + "=" + v).join("&");
+const textBox = el => !!el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/^(checkbox|radio|button|submit|range|file)$/.test(el.type)));
+document.addEventListener("submit", e => { if (e.target.closest && e.target.closest(".admin")) adminSent = formKey(e.target); }, true);
+function adminTyping() {
+  const a = document.activeElement;
+  return textBox(a) && !!a.closest(".admin");
+}
+function adminForms() {
+  const out = [];
+  document.querySelectorAll(".admin form").forEach(f => {
+    const key = formKey(f);
+    if (!key) return;
+    const vals = [...f.elements].filter(i => i.name && (i.type === "checkbox" || i.type === "radio" ? i.checked !== i.defaultChecked
+      : textBox(i) && i.value !== i.defaultValue)).map(i => [i.name, i.type, i.value, i.checked]);
+    const err = ((f.querySelector(".form-error") || {}).textContent || "").trim();
+    if (vals.length || err) out.push([key, vals, err]);
+  });
+  return out;
+}
+function adminFormsBack(saved) {
+  const forms = [...document.querySelectorAll(".admin form")];
+  saved.forEach(([key, vals, err]) => {
+    const f = forms.find(x => formKey(x) === key);
+    if (!f) return;
+    vals.forEach(([name, type, value, checked]) => [...f.elements].filter(i => i.name === name).forEach(i => {
+      if (type === "radio") { if (i.value === value) i.checked = checked; }
+      else if (type === "checkbox") i.checked = checked;
+      else i.value = value;
+    }));
+    const e = f.querySelector(".form-error");
+    if (e && err && !e.textContent.trim()) e.textContent = err;
+  });
+}
+function adminField(el) {        // where the focus is, to put it back after the page is drawn again (a remote has
+  if (!el || !el.closest || !el.closest(".admin")) return null;   // nothing to go on from when it's lost)
+  if (el.form && formKey(el.form)) return ["form", formKey(el.form), [...el.form.elements].indexOf(el)];
+  const sel = Object.entries(el.dataset).map(([k, v]) => `[data-${k.replace(/[A-Z]/g, c => "-" + c.toLowerCase())}="${CSS.escape(v)}"]`).join("");
+  return sel ? ["sel", el.tagName.toLowerCase() + sel] : null;
+}
+adminField.find = ([how, key, n]) => {
+  if (how === "sel") return document.querySelector(".admin " + key);
+  const f = [...document.querySelectorAll(".admin form")].find(x => formKey(x) === key);
+  return f && f.elements[n];
+};
 document.addEventListener("click", async e => {
   const b = e.target.closest && e.target.closest("[data-restart-server]");
   if (!b) return;
@@ -3910,7 +3961,9 @@ document.addEventListener("click", async e => {
 function viewServer(tab) {
   setGlow("");
   if (tab && SRV_TABS.some(t => t[0] === tab) && tab !== adminTab) adminTab = tab;
-  if (adminData && !adminData.error && adminData.tab !== adminTab && ADMIN_EXTRA[adminTab] && !adminBusy) loadAdmin();   // this tab's lists, once
+  // this tab's lists, once: when that ask fails, the timer below asks again (asked again here, it looped hundreds of
+  // times a second while the server was restarting or out of reach)
+  if (adminData && !adminData.error && adminData.tab !== adminTab && adminAsked !== adminTab && ADMIN_EXTRA[adminTab] && !adminBusy) loadAdmin();
   clearTimeout(adminTimer);
   const busy = adminData && adminData.convert && adminData.convert.counts && adminData.convert.counts.working;
   const upd = (adminData && adminData.update && adminData.update.running) ||
@@ -4712,7 +4765,7 @@ function drawQr(box) {
 }
 async function adminAction(fn) {
   try { await fn(); } catch (e) { alertBox(e.message); }
-  loadAdmin();
+  loadAdmin(true);
 }
 function alertBox(msg) { dialog(`<h2>That didn't work</h2><p>${esc(msg)}</p>`); }
 
@@ -4985,7 +5038,7 @@ document.addEventListener("click", e => {
   if (t.dataset.station) { startStation(t.dataset.station); return; }
   if (t.dataset.mtab) { location.hash = "#/music/" + t.dataset.mtab; return; }
   if (t.dataset.playMv) { Player.open(mById.get(t.dataset.playMv)); return; }
-  if (t.dataset.guestClear) { if (confirm("Clear everything guests have watched and liked, and sign current guests out?")) adminAction(() => api("/api/admin/guest/clear", {})); return; }
+  if (t.dataset.guestClear) { if (confirm("Clear everything guests have watched and liked, and sign current guests out?")) adminAction(async () => { await api("/api/admin/guest/clear", {}); toast("Cleared. Guests start afresh."); }); return; }
   if (t.dataset.live) {
     const list = t.closest(".lv-b") ? liveData.channels.filter(c => !c.archive) : liveList();
     Player.openLive(list.find(c => c.id === t.dataset.live) || liveData.channels.find(c => c.id === t.dataset.live), list); return;
@@ -5069,7 +5122,7 @@ document.addEventListener("click", e => {
   }
   else if (t.dataset.userPass) {
     const pw = prompt("New password for " + t.dataset.userName + " (8 or more characters):");
-    if (pw) adminAction(() => api("/api/admin/users/" + t.dataset.userPass + "/password", { password: pw }));
+    if (pw) adminAction(async () => { await api("/api/admin/users/" + t.dataset.userPass + "/password", { password: pw }); toast("Saved. " + t.dataset.userName + " signs in with the new password."); });
   }
   else if (t.dataset.userDel) {
     if (confirm("Remove " + t.dataset.userName + "? Their watch history goes too.")) adminAction(() => api("/api/admin/users/" + t.dataset.userDel + "/delete", {}));
@@ -5112,7 +5165,7 @@ document.addEventListener("submit", e => {
     const f = e.target, err = $(".form-error", f), tuner = f.id === "addTuner";
     err.textContent = tuner ? "Asking it…" : "Adding it…";
     api("/api/admin/tuners", tuner ? { add: f.addr.value.trim() } : { guide_add: f.where.value.trim() })
-      .then(() => { f.reset(); err.textContent = ""; liveData = null; guideData = null; toast(tuner ? "Added. Switch it on to bring its channels into Live TV." : "Added. Sofa is reading it now."); loadAdmin(); })
+      .then(() => { f.reset(); err.textContent = ""; liveData = null; guideData = null; toast(tuner ? "Added. Switch it on to bring its channels into Live TV." : "Added. Sofa is reading it now."); loadAdmin(true); })
       .catch(ex => { err.textContent = ex.message; });
     return;
   }
@@ -5121,7 +5174,7 @@ document.addEventListener("submit", e => {
     const f = e.target, err = $(".form-error", f);
     err.textContent = "Downloading the list…";
     api("/api/admin/live", { add: { name: f.name.value, url: f.url.value, adult: f.adult.checked } })
-      .then(r => { f.reset(); err.textContent = ""; liveData = null; liveAdded(r); loadAdmin(); })
+      .then(r => { f.reset(); err.textContent = ""; liveData = null; liveAdded(r); loadAdmin(true); })
       .catch(ex => { err.textContent = ex.message; });
     return;
   }
@@ -5129,7 +5182,7 @@ document.addEventListener("submit", e => {
   e.preventDefault();
   const f = e.target, err = $(".form-error", f);
   api("/api/admin/users", { name: f.name.value, password: f.password.value, admin: f.admin.checked, adult: f.adult.checked })
-    .then(() => { f.reset(); loadAdmin(); })
+    .then(() => { f.reset(); err.textContent = ""; loadAdmin(true); })
     .catch(ex => { err.textContent = ex.message; });
 });
 // (a row scrolling sends this for each step of its glide: only that row is looked at, and its arrows touched only when

@@ -8,6 +8,39 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
 
+## 1.5.44 (2026-11-22)
+
+Every option under Server, gone through in a browser at desk and TV size, and what a household's Sofa logged.
+
+- **Converting on an older Intel Mac works.** A Mac without Apple's video chip converts with VideoToolbox's software
+  side, which takes no quality setting: every file failed with "Nothing was written into output file". It now
+  converts at a bit rate there, and each computer runs its conversion test once more after updating.
+- **Switches on the Server page show what they were set to.** The page drew itself again from a status from just
+  before the change, so a switch showed its old state, and pressed again it was set the same way again (Offline,
+  Share with TVs, Keep no logs stayed on).
+- **What you type on the Server page stays.** Every 10 seconds the page was drawn again and a half-typed list link,
+  person, key, quiet hours or tuner address went, with the focus. It now waits while a text box has the focus, and
+  keeps what was typed, ticked and any form's message otherwise.
+- **With a remote, the focus stays on the switch or button you pressed** (it went nowhere, and the next press did
+  nothing).
+- **No flood of requests while the server is out of reach.** Picking another Server tab while Sofa was restarting or
+  the Wi-Fi was gone asked again hundreds of times a second; it now asks every 10 seconds.
+- **The Library tab's count of titles without details matches its list** (it counted the Adult section's titles for
+  someone who hasn't switched Adult on).
+- **The Deleted folder counts the spare copies** right after Keep the best (it said 0 files, with no Empty button,
+  for two minutes).
+- **Storage no longer offers a Mac's hidden volumes** (its Recovery volume) as a drive to use.
+- **Pictures keep being made when a file moves away** mid-way ("art-warm stopped: No such file or directory").
+- **Every Server tab in sight.** The tab bar hid its scroll bar, so Activity was past the edge on a laptop and a TV;
+  it now goes on to a second row.
+- **New password** and **Clear guest history** say they were done (they said nothing).
+- **A download for Adult that fails keeps its reason** in the private log (only "didn't work" was kept, and nothing
+  once the list was cleared).
+- Tried: every Server tab's buttons, switches and forms on a scratch Sofa in headless Chrome at 1280 px and in TV
+  mode (a made library, a stand-in network tuner, a DVD folder, a disk image as a drive); the conversion commands
+  by hand with the iMac's own ffmpeg (the old one fails as logged, the new one converts). Not on the iMac's Sofa
+  itself, and not Update now, the router (UPnP), Check from outside or Accept connections from the internet.
+
 ## 1.5.43 (2026-11-21)
 
 - **Play in VLC**, on a copy-protected disc's page, when you're at the Sofa computer itself: Sofa opens the disc in
