@@ -473,7 +473,11 @@ class Handler(BaseHTTPRequestHandler):
         data = self.body_json()
         if data is None:
             return self.error(400, "Couldn't read the request.")
-        self.api_post(path, data)
+        try:
+            self.api_post(path, data)
+        finally:
+            if path.startswith("/api/admin/"):
+                status_changed()        # the Server page's next status shows what this changed, never one from before
 
     def upload(self):
         u = self.need_user(admin=True)
@@ -1152,7 +1156,10 @@ class Handler(BaseHTTPRequestHandler):
             # `start`: where its first picture really is (copied video starts on the keyframe before the place asked for)
             return self.json({"url": "/media/hls/%s/index.m3u8" % sid, "session": sid, "start": media.hls_from(sid)})
         if path == "/api/admin/status":
-            return self.json(admin_status())
+            d = admin_status()
+            if not u.get("adult"):          # the Adult section's titles are left out of the count, as from the list
+                d = dict(d, library=dict(d["library"], missing=d["library"]["missing"] - d["library"].get("missing_adult", 0)))
+            return self.json(d)
         if path == "/api/admin/history":           # bringing history from Plex or Jellyfin: how it's going, the dry run
             return self.json(history.status(adult_ok=bool(u.get("adult"))))
         if path == "/api/admin/sharing":
@@ -1424,6 +1431,7 @@ class Handler(BaseHTTPRequestHandler):
             except OSError as exc:
                 return self.error(500, "Couldn't move it: %s" % (exc.strerror or exc))
             LIBRARY.drop(key)
+            slow.forget("deleted")
             LIBRARY.scan("moved from the app", quick=True)
             return self.json({"ok": True, "message": message})
         if path == "/api/admin/cache":
@@ -1997,7 +2005,7 @@ class Handler(BaseHTTPRequestHandler):
             store.log("settings", "%s changed settings: %s" % (u["name"], ", ".join(sorted(allowed))))
             return self.json({"ok": True, "settings": public_settings()})
         if path == "/api/admin/duplicates":          # keep the best copy, the others to Deleted
-            slow.forget("duplicates-%s" % LIBRARY.generated)
+            slow.forget("duplicates-%s" % LIBRARY.generated, "deleted")     # (the copies are in Deleted now)
             keys = None if data.get("all") else [str(k) for k in data.get("keys") or []]
             n, freed = housekeeping.drop_duplicates(LIBRARY, keys)
             if n:
@@ -2218,7 +2226,7 @@ def public_settings():
 
 
 _status_lock = threading.Lock()
-_status = {"at": 0.0, "value": None}
+_status = {"at": 0.0, "value": None, "changes": 0}
 STATUS_WAIT = 5                 # seconds a Server page waits for another's status before it takes the last one
 
 
@@ -2232,11 +2240,20 @@ def admin_status():
     try:
         if _status["value"] is not None and time.time() - _status["at"] < 1.5:
             return _status["value"]
+        changes = _status["changes"]
         value = _admin_status()
-        _status.update(at=time.time(), value=value)
+        # (one worked out while a change was being made may be from before it: it's given out, but not kept)
+        _status.update(at=time.time() if changes == _status["changes"] else 0.0, value=value)
         return value
     finally:
         _status_lock.release()
+
+
+def status_changed():
+    """Something on the Server page was changed: the status kept for the next few asks is out of date. Without this,
+    a switch turned off showed on again for a moment, and pressing it again turned it on instead of off."""
+    _status["changes"] += 1
+    _status["at"] = 0.0
 
 
 def _disc_status():
@@ -2257,6 +2274,7 @@ def _disk():
 
 def _admin_status():
     lan = slow.cached("lan", 30, dlna.lan_addresses, default=[])
+    missing = LIBRARY.missing_details()
     return {
         "server": {"name": config.get("name"), "version": __version__, "started": int(STARTED),
                    "host": platform.node(), "python": platform.python_version(),
@@ -2265,7 +2283,7 @@ def _admin_status():
                    "remote": config.get("remote"), "dlna": config.get("dlna")},
         "library": dict(LIBRARY.counts(), generated=LIBRARY.generated, scanning=LIBRARY.scanning,
                         scan_seconds=LIBRARY.last_scan_seconds, disk=slow.cached("disk", 30, _disk),
-                        missing=len(LIBRARY.missing_details()),
+                        missing=len(missing), missing_adult=sum(1 for m in missing if m.get("adult")),
                         folders={k: config.path(k).replace(os.path.expanduser("~"), "~", 1)
                                  for k in ("shows", "movies", "music", "musicvideos", "adult", "inbox", "review",
                                            "originals")},

@@ -100,9 +100,9 @@ def _key():
     device passed to the container: tested again)."""
     exe = media.tool("ffmpeg") or ""
     try:
-        return "3|%s|%d|%s" % (exe, os.path.getmtime(exe), encoders.signature())
+        return "4|%s|%d|%s" % (exe, os.path.getmtime(exe), encoders.signature())
     except OSError:
-        return "3|%s|%s" % (exe, encoders.signature())
+        return "4|%s|%s" % (exe, encoders.signature())
 
 
 def _said(speeds, tried, damaged):

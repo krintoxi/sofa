@@ -62,6 +62,10 @@ VARIANTS = {
     "h264_videotoolbox": [
         {"live": ["-allow_sw", "1", "-realtime", "1", "-b:v", "{rate}", "-maxrate", "16M", "-bufsize", "24M"],
          "file": ["-allow_sw", "1", "-q:v", "62"]},
+        # A Mac without Apple's video chip (an Intel Mac from before 2015 or so): its software side takes no -q:v
+        # ("qscale not available for encoder") and every file failed with "Nothing was written". A bit rate works.
+        {"live": ["-allow_sw", "1", "-realtime", "1", "-b:v", "{rate}", "-maxrate", "16M", "-bufsize", "24M"],
+         "file": ["-allow_sw", "1", "-b:v", "{more}"]},
     ],
     "h264_nvenc": [
         {"live": ["-preset", "p4", "-rc", "vbr", "-cq", "23", "-b:v", "0", "-maxrate", "16M", "-bufsize", "24M"],

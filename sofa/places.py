@@ -130,17 +130,31 @@ def all_section_roots(keys=("shows", "movies", "adult")):
 
 # ---------------------------------------------------------------- drives plugged into this computer
 
-def _mount_types():
+def _mount_text():
+    try:
+        return subprocess.run(["mount"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _mount_types(text=None):
     """{mount point: filesystem type} from `mount` (macOS: "(exfat, local, ...)"; Linux: "type exfat")."""
     out = {}
-    try:
-        text = subprocess.run(["mount"], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return out
-    for line in text.splitlines():
+    for line in (_mount_text() if text is None else text).splitlines():
         m = re.match(r"^.+? on (.+?) \(([^,)]+)", line) or re.match(r"^.+? on (.+?) type (\S+)", line)
         if m:
             out[m.group(1)] = m.group(2).lower()
+    return out
+
+
+def _hidden_mounts(text):
+    """Mount points a Mac keeps out of sight ("nobrowse": its Recovery volume, a simulator's disk image). Finder
+    doesn't show them, and they aren't drives to put a library on."""
+    out = set()
+    for line in text.splitlines():
+        m = re.match(r"^.+? on (.+?) \(([^)]*)\)\s*$", line)
+        if m and "nobrowse" in [o.strip() for o in m.group(2).split(",")]:
+            out.add(m.group(1))
     return out
 
 
@@ -178,13 +192,15 @@ def _mounted():
     from . import windows
     if windows.ON and not config.get("drive_folders"):
         return [(d["name"], d["path"], d["fs"]) for d in windows.drives() or []]
-    types, out = _mount_types(), []
+    text = _mount_text()
+    types, hidden, out = _mount_types(text), _hidden_mounts(text), []
     for folder in _drive_folders():
         try:
             names = sorted(os.listdir(folder))
         except OSError:
             continue
-        out += [(name, os.path.join(folder, name), types.get(os.path.join(folder, name), "")) for name in names]
+        out += [(name, os.path.join(folder, name), types.get(os.path.join(folder, name), "")) for name in names
+                if os.path.join(folder, name) not in hidden]
     return out
 
 

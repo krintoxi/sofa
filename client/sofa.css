@@ -678,6 +678,7 @@ body.has-bar .toast { bottom: 110px; }
 .srv-tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 22px; padding: 4px; border-radius: 16px;
   background: rgba(var(--slate-rgb), .7); border: 1px solid var(--line); }
 .srv-tabs::-webkit-scrollbar { display: none; }
+@media (min-width: 761px) { .srv-tabs { flex-wrap: wrap; } }   /* every tab in sight (Activity was past the edge, with no bar to scroll) */
 .srv-tabs button { flex: none; padding: 9px 16px; border-radius: 12px; color: var(--mist); font-weight: 600; font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
 .srv-tabs button:hover { color: var(--paper); }
 .srv-tabs button[aria-current="page"] { background: var(--paper); color: var(--ink); }
