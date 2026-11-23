@@ -8,6 +8,15 @@ here, then `python3 tools/sofa-version.py` (a test checks it was done).
 
 
 
+
+## 1.5.45 (2026-11-23)
+
+- **Sofa's announcement on the home network ends with Sofa.** Sofa tells phones, TVs and Sofa Boxes it's there (Bonjour),
+  through a small helper. Stopped cleanly, Sofa stopped it; killed or crashed, the helper went on announcing a Sofa
+  that wasn't there, and a network that had seen a few restarts listed a dozen "Sofa (2)", "Sofa (3)"... that a Sofa
+  Box showed in its chooser. Now the helper looks every few seconds whether its Sofa is still running, and ends with it
+  (`tests/test_announce_ends.py` kills a Sofa outright and checks). Windows was never affected: it announces Sofa itself.
+
 ## 1.5.43 (2026-11-21)
 
 - **Play in VLC**, on a copy-protected disc's page, when you're at the Sofa computer itself: Sofa opens the disc in

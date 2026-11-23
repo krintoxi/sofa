@@ -404,7 +404,8 @@ def write_durably(path, text, mode=0o644):
     that had just finished its setup asked for it again.)"""
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    tmp = path + ".new"
+    tmp = "%s.new-%d-%d" % (path, os.getpid(), threading.get_ident())    # (each writer its own: two at once, a phone pairing
+    #                                                                       twice during the setup, took each other's)
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)
@@ -597,6 +598,25 @@ def add(base, host=None):
         found[base] = entry
 
 
+gone = {}                                                       # address -> looks in a row it didn't answer
+
+
+def forget_gone(keep=(), misses=2):
+    """A Sofa found earlier that no longer answers leaves the chooser after two looks in a row (a test server stopped,
+    a computer switched off): the list was everything ever found since the box started. Never the one chosen."""
+    with _lock:
+        bases = [b for b in found if b not in keep]
+    for base in bases:
+        if info(base):
+            gone.pop(base, None)
+            continue
+        gone[base] = gone.get(base, 0) + 1
+        if gone[base] >= misses:
+            with _lock:
+                found.pop(base, None)
+            gone.pop(base, None)
+
+
 def bonjour():
     """Sofas announcing themselves at home: [(address, the computer's name)]."""
     try:
@@ -660,6 +680,7 @@ def look():
         if not state["chosen"] or steady() < looking["until"]:   # (the chooser open: what's there, by name)
             for base, host in bonjour() + [(b, None) for b in ssdp()]:
                 add(base, host)
+            forget_gone(keep=(state["chosen"], (last or "").rstrip("/")))
         with _lock:
             if state["chosen"] is None:
                 if last and last.rstrip("/") in found:

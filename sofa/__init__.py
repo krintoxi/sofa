@@ -1,3 +1,3 @@
 """Sofa: a small, self-hosted home media server."""
 
-__version__ = "1.5.43"
+__version__ = "1.5.45"

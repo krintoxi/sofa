@@ -10,6 +10,21 @@ GitHub builds the card and makes the release by itself.
 
 
 
+
+## 1.1.105
+
+From report PCZ2UC (a Pi 3 B+ on 1.1.104, the night of 2026-11-22):
+
+- **Pairing the phone during the setup no longer fails.** Two saves of the paired phones at the same moment (the phone
+  asking twice) took each other's half-written file, and the box's agent stopped that request with an error. Each save
+  now writes its own.
+- **Where's your Sofa lists only Sofas that are there.** The chooser kept every Sofa it had found since the box started,
+  even ones that had stopped answering (a test server switched off, a computer gone to sleep). One that doesn't answer
+  two looks in a row now leaves the list; the one you chose never does.
+- The report also showed the Pi short of power since it started ("under-voltage"), which slows it and can make it
+  restart by itself: the Pi 3's own 5.1 V 2.5 A supply, into the wall, fixes that.
+- Tried with the box's agent on a Mac (`tests/test_box_report_fixes.py`); not on a Pi yet.
+
 ## 1.1.104
 
 - **A terminal on the box.** Settings → This box → **Open the terminal**: a small window over the page with a shell on
