@@ -30,10 +30,23 @@ def _command():
     name, port = config.get("name") or "Sofa", str(config.get("port"))
     txt = _txt()
     if shutil.which("dns-sd"):                                   # macOS
-        return ["dns-sd", "-R", name, SERVICE, "local", port] + txt
+        return _tied(["dns-sd", "-R", name, SERVICE, "local", port] + txt)
     if shutil.which("avahi-publish-service"):                    # Linux with Avahi
-        return ["avahi-publish-service", name, SERVICE, port] + txt
+        return _tied(["avahi-publish-service", name, SERVICE, port] + txt)
     return None
+
+
+def _tied(cmd):
+    """The announcer, ended with Sofa however Sofa ends. Stopped cleanly, Sofa stops it; killed, or crashed, it used to
+    go on announcing a Sofa that wasn't there (a network with a dozen dead "Sofa (n)" in it, which a Sofa Box lists).
+    So it runs under a little shell that looks every few seconds whether this Sofa is still running, and ends it when
+    it isn't."""
+    import shlex
+    if not shutil.which("sh"):
+        return cmd
+    script = ('%s & c=$!; trap \'kill $c 2>/dev/null\' EXIT HUP INT TERM; '
+              'while kill -0 %d 2>/dev/null && kill -0 $c 2>/dev/null; do sleep 3; done') % (" ".join(shlex.quote(x) for x in cmd), os.getpid())
+    return ["sh", "-c", script]
 
 
 def _forget_leftover():
