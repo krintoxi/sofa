@@ -1494,6 +1494,8 @@ class Browser:
         elif m == "Log.entryAdded":
             e = p.get("entry") or {}
             text = "%s: %s" % (e.get("source", ""), e.get("text", "")) if e.get("level") == "error" else ""
+            if text and e.get("url"):                    # which file it was (a report keeps only its site and folders)
+                text += " " + str(e["url"])[:200]
         elif m == "Media.playerErrorsRaised":
             text = "; ".join("%s %s" % (e.get("errorType", ""), e.get("code", "")) for e in p.get("errors", []))
         elif m == "Media.playerMessagesLogged":

@@ -11,6 +11,13 @@ GitHub builds the card and makes the release by itself.
 
 
 
+## 1.1.106
+
+- **A report names the file a page couldn't load.** Report PCZ2UC said Sofa's page had two files not found (404)
+  and not which ones, so nothing could be done about them. A failed load now carries its address, and a report
+  keeps the name of a Sofa or box route (`/api/pair/…`, `/box/api/info`) where it kept only the first folder
+  (`/api/…`). Titles, ids and keys after it stay out, as before.
+
 ## 1.1.105
 
 From report PCZ2UC (a Pi 3 B+ on 1.1.104, the night of 2026-11-22):
