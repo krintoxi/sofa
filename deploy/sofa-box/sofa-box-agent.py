@@ -4768,6 +4768,7 @@ def local_address():
 
 
 REPORT_URL = re.compile(r"""\b((?:https?|wss?|file)://[^/\s"'<>]*)(/[^/?#\s"'<>]*)?([^\s"'<>]*)""")
+REPORT_ROUTE = re.compile(r"/(?:box/)?api/[a-z][a-z-]*")   # Sofa's and the box's own routes
 REPORT_PATH = re.compile(r"(?<![\w.:/-])(/(?:media|mnt|run/media|home/[^/\s]+)/)[^\n|]*")
 REPORT_SECRET = re.compile(r"""(?i)\b(secret|password|psk|token|cookie)("?\s*[:=]\s*)("[^"]*"|\S+)""")
 REPORT_MAX = 190000                                         # the certificate service takes 200,000 characters
@@ -4775,9 +4776,15 @@ _report = {"at": 0}
 
 
 def scrub(text):
-    """What a report says of addresses: their site and first folder (no titles, ids or keys after it); of files on
+    """What a report says of addresses: their site and first folder, or the name of a Sofa or box route (/api/pair,
+    /box/api/info), and no titles, ids or keys after it; of files on
     drives and in the box's folders, only where they are; passwords and secrets blanked."""
-    text = REPORT_URL.sub(lambda m: m.group(1) + (m.group(2) or "") + ("/…" if m.group(3) else ""), text)
+    def short(m):
+        route = REPORT_ROUTE.match((m.group(2) or "") + m.group(3))           # /api/pair/…, /box/api/info: the route's name
+        keep = route.group(0) if route and route.end() > len(m.group(2) or "") else (m.group(2) or "")
+        rest = ((m.group(2) or "") + m.group(3))[len(keep):]
+        return m.group(1) + keep + ("/…" if rest else "")
+    text = REPORT_URL.sub(short, text)
     return REPORT_SECRET.sub(r"\1\2•••", REPORT_PATH.sub(r"\1…", text))
 
 
