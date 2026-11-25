@@ -208,7 +208,8 @@ const GLOSSY = {
     const note = g.lin("nt", 0, 250, 0, 470, [[0, GREEN[0]], [.4, GREEN[2]], [1, GREEN[4]]]);
     const dclip = g.clip("dk", `<ellipse cx="256" cy="250" rx="206" ry="176"/>`);
     const grooves = [...Array(14).keys()].map(i => `<ellipse cx="256" cy="250" rx="${200 - i * 9}" ry="${170 - i * 7.6}" fill="none" stroke="#3A3A44" stroke-width="1.6" opacity=".7"/>`).join("");
-    const eq = [[-34, 30], [-17, 46], [0, 22], [17, 52], [34, 34]].map(([dx, h]) => `<rect x="${244 + dx}" y="${262 - h}" width="10" height="${h}" rx="4" fill="${GREEN[2]}"/>`).join("");
+    // Edge Music's mark on the label: a diamond split down its edge, a chevron and a play triangle.
+    const eq = `<g transform="translate(256 250) scale(1 .86)"><path d="M-8 -44-52 0l44 44V18L-26 0l18-18z" fill="#fff"/><path d="M8 -44l44 44-44 44z" fill="${GREEN[1]}"/></g>`;
     return `${shadow(g, 256, 440, 210, 22)}
       <ellipse cx="256" cy="266" rx="206" ry="176" fill="#050507"/>
       <ellipse cx="256" cy="250" rx="206" ry="176" fill="${disc}"/>
