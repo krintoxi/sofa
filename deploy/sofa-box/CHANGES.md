@@ -11,6 +11,12 @@ GitHub builds the card and makes the release by itself.
 
 
 
+## 1.1.107
+
+- **Edge Music's new mark on Home.** Edge Music changed its logo to a diamond split down its edge: a chevron and
+  a play triangle. Its tile shows that mark in the Drawn, Phosphor and Pixel icons, and on the record's label in
+  Glossy. Sticker keeps its cassette. "The apps' own" shows Edge Music's new icon by itself, from its site.
+
 ## 1.1.106
 
 - **A report names the file a page couldn't load.** Report PCZ2UC said Sofa's page had two files not found (404)
